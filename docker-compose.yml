@@ -1,0 +1,79 @@
+services:
+  postgres:
+    image: postgis/postgis:16-3.4-alpine
+    container_name: wasel-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: wasel_db
+      POSTGRES_USER: wasel_user
+      POSTGRES_PASSWORD: wasel_secret
+    ports:
+      - "5432:5432"
+    volumes:
+      - wasel_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U wasel_user -d wasel_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: wasel-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - wasel_redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  minio:
+    image: minio/minio:RELEASE.2024-03-03T17-50-39Z
+    container_name: wasel-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minio_admin
+      MINIO_ROOT_PASSWORD: minio_password
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - wasel_minio_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  minio-init:
+    image: minio/mc:RELEASE.2024-03-03T18-29-21Z
+    container_name: wasel-minio-init
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      /usr/bin/mc alias set myminio http://minio:9000 minio_admin minio_password;
+      /usr/bin/mc mb --ignore-existing myminio/wasel-public;
+      /usr/bin/mc mb --ignore-existing myminio/wasel-identity-private;
+      /usr/bin/mc anonymous set download myminio/wasel-public;
+      exit 0;
+      "
+
+  mailpit:
+    image: axllent/mailpit:v1.21.8
+    container_name: wasel-mailpit
+    restart: unless-stopped
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+
+volumes:
+  wasel_postgres_data:
+  wasel_redis_data:
+  wasel_minio_data:
