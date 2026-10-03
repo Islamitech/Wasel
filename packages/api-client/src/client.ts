@@ -79,11 +79,17 @@ export class WaselApiClient {
       } catch {
         errorBody = { message: response.statusText, statusCode: response.status };
       }
+
+      const detailedMsg =
+        Array.isArray(errorBody?.details) && errorBody.details[0]?.message
+          ? errorBody.details[0].message
+          : errorBody?.message || 'Request failed';
+
       const err: ApiClientError = {
         statusCode: response.status,
-        errorCode: errorBody.errorCode || 'UNKNOWN_ERROR',
-        message: errorBody.message || 'Request failed',
-        details: errorBody.details,
+        errorCode: errorBody?.errorCode || 'UNKNOWN_ERROR',
+        message: detailedMsg,
+        details: errorBody?.details,
       };
       throw err;
     }

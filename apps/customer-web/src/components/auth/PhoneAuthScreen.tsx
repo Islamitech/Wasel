@@ -132,12 +132,16 @@ export const PhoneAuthScreen: React.FC<PhoneAuthScreenProps> = ({
           <Field
             label={t('auth.phoneLabel')}
             type="tel"
-            placeholder={t('auth.phonePlaceholder')}
+            placeholder="01012345678"
             value={phone}
             onChange={(e) => setPhone(e.target.value)}
             error={error || undefined}
             autoFocus
           />
+
+          <div style={{ fontSize: '0.8rem', color: '#6b7280', marginTop: '-12px' }}>
+            💡 رقم موبايل مصري مكون من 11 رقماً (مثال: <code>01012345678</code> أو <code>01111445555</code>)
+          </div>
 
           <Button type="submit" isLoading={loading}>
             {t('auth.sendOtp')}
@@ -155,6 +159,20 @@ export const PhoneAuthScreen: React.FC<PhoneAuthScreenProps> = ({
             error={error || undefined}
             autoFocus
           />
+
+          <div
+            style={{
+              fontSize: '0.85rem',
+              backgroundColor: '#eaf2ee',
+              color: '#12302b',
+              padding: '10px',
+              borderRadius: '10px',
+              textAlign: 'center',
+              fontWeight: 600,
+            }}
+          >
+            🔑 رمز التحقق لبيئة التطوير: <code>123456</code>
+          </div>
 
           <Button type="submit" isLoading={loading}>
             {t('auth.verifyOtp')}

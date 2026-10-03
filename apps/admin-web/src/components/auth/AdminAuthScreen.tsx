@@ -93,6 +93,24 @@ export const AdminAuthScreen: React.FC<AdminAuthScreenProps> = ({ onSuccess }) =
           required
         />
 
+        <div
+          style={{
+            fontSize: '0.825rem',
+            backgroundColor: '#eef3ef',
+            color: '#12302b',
+            padding: '10px 14px',
+            borderRadius: '12px',
+            border: '1px solid #c8d9cf',
+            lineHeight: 1.5,
+          }}
+        >
+          🔑 <strong>بيانات الدخول الافتراضية:</strong>
+          <br />
+          البريد: <code>admin@wasel.local</code>
+          <br />
+          كلمة المرور: <code>Admin@123456</code>
+        </div>
+
         <Button type="submit" isLoading={loading}>
           تسجيل الدخول للوحة التحكم
         </Button>
