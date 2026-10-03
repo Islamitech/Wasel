@@ -1,0 +1,11 @@
+{
+  "extends": "@wasel/config/tsconfig.react.json",
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "@wasel/shared": ["../../packages/shared/src/index.ts"],
+      "@wasel/api-client": ["../../packages/api-client/src/index.ts"]
+    }
+  },
+  "include": ["src/**/*"]
+}
