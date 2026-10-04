@@ -94,3 +94,14 @@ export const SettingUpdateSchema = z.object({
 });
 
 export type SettingUpdateDto = z.infer<typeof SettingUpdateSchema>;
+
+export * from './catalog.schema.js';
+export * from './orders.schema.js';
+export * from './offers.schema.js';
+export * from './execution.schema.js';
+export * from './verification.schema.js';
+export * from './subscriptions.schema.js';
+export * from './messaging.schema.js';
+export * from './trust.schema.js';
+export * from './admin.schema.js';
+
