@@ -9,6 +9,8 @@
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",
     "test": "turbo run test",
+    "test:db": "pnpm --filter @wasel/api test data_model.spec.ts",
+    "verify:rls": "pnpm --filter @wasel/api exec tsx ../../scripts/verify-rls.ts",
     "test:e2e": "turbo run test:e2e",
     "generate:client": "turbo run generate:client",
     "format": "prettier --write \"**/*.{ts,tsx,js,json,md}\"",

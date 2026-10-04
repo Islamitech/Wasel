@@ -126,38 +126,38 @@ export async function initEmbeddedDatabase(dataDir?: string) {
 
     CREATE TABLE IF NOT EXISTS vehicle_types (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      region_id UUID NOT NULL REFERENCES regions(id),
-      code VARCHAR(32) NOT NULL,
+      code VARCHAR(32) NOT NULL UNIQUE,
       name_ar VARCHAR(128) NOT NULL,
-      name_en VARCHAR(128) NOT NULL,
       max_weight_kg INT NOT NULL,
-      max_volume_cbm INT NOT NULL,
-      display_order INT NOT NULL DEFAULT 0,
-      is_active BOOLEAN NOT NULL DEFAULT true,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      max_volume_m3 NUMERIC(5,2) NOT NULL,
+      dimensions JSONB,
+      escalation_rank INT NOT NULL,
+      icon VARCHAR(64),
+      active BOOLEAN NOT NULL DEFAULT true,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
     );
 
     CREATE TABLE IF NOT EXISTS service_actions (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      region_id UUID NOT NULL REFERENCES regions(id),
-      code VARCHAR(32) NOT NULL,
+      code VARCHAR(32) NOT NULL UNIQUE,
       name_ar VARCHAR(128) NOT NULL,
-      name_en VARCHAR(128) NOT NULL,
-      base_fee_cents INT NOT NULL,
-      is_active BOOLEAN NOT NULL DEFAULT true,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      icon VARCHAR(64),
+      sort_order INT NOT NULL,
+      config JSONB NOT NULL DEFAULT '{}',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
     );
 
     CREATE TABLE IF NOT EXISTS value_tiers (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      region_id UUID NOT NULL REFERENCES regions(id),
-      code VARCHAR(32) NOT NULL,
+      code VARCHAR(32) NOT NULL UNIQUE,
       name_ar VARCHAR(128) NOT NULL,
-      min_value_cents INT NOT NULL,
-      max_value_cents INT NOT NULL,
-      required_vehicle_classes JSONB NOT NULL,
-      is_active BOOLEAN NOT NULL DEFAULT true,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      min_minor BIGINT NOT NULL,
+      max_minor BIGINT,
+      rank INT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
     );
   `);
 
@@ -239,13 +239,13 @@ export async function initEmbeddedDatabase(dataDir?: string) {
       });
     }
 
-    // Seed Vehicle Types
+    // Seed Vehicle Types (Approved fleet: bicycle, motorcycle, tricycle, half-truck, jumbo)
     await db.insert(schema.vehicleTypes).values([
-      { regionId: region.id, code: 'bicycle', nameAr: 'دراجة هوائية', nameEn: 'Bicycle', maxWeightKg: 15, maxVolumeCbm: 1, displayOrder: 1 },
-      { regionId: region.id, code: 'motorcycle', nameAr: 'موتوسيكل', nameEn: 'Motorcycle', maxWeightKg: 35, maxVolumeCbm: 2, displayOrder: 2 },
-      { regionId: region.id, code: 'tricycle', nameAr: 'تروسيكل', nameEn: 'Tricycle', maxWeightKg: 350, maxVolumeCbm: 15, displayOrder: 3 },
-      { regionId: region.id, code: 'pickup', nameAr: 'سيارة نص نقل', nameEn: 'Pickup', maxWeightKg: 1200, maxVolumeCbm: 40, displayOrder: 4 },
-      { regionId: region.id, code: 'light_truck', nameAr: 'جامبو / نقل خفيف', nameEn: 'Light Truck', maxWeightKg: 3500, maxVolumeCbm: 120, displayOrder: 5 },
+      { code: 'bicycle', nameAr: 'دراجة هوائية', maxWeightKg: 15, maxVolumeM3: '0.05', escalationRank: 1, icon: 'bike', active: true },
+      { code: 'motorcycle', nameAr: 'دراجة نارية (موتوسيكل)', maxWeightKg: 40, maxVolumeM3: '0.15', escalationRank: 2, icon: 'motorcycle', active: true },
+      { code: 'tricycle', nameAr: 'تروسيكل', maxWeightKg: 400, maxVolumeM3: '1.50', escalationRank: 3, icon: 'tricycle', active: true },
+      { code: 'half_truck', nameAr: 'نصف نقل (بيك آب)', maxWeightKg: 1200, maxVolumeM3: '5.00', escalationRank: 4, icon: 'truck-pickup', active: true },
+      { code: 'jumbo', nameAr: 'جامبو (نقل خفيف)', maxWeightKg: 3500, maxVolumeM3: '15.00', escalationRank: 5, icon: 'truck', active: true },
     ]);
 
     // Seed Settings
