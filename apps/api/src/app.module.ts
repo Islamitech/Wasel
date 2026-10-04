@@ -28,6 +28,7 @@ import { AdminModule } from './modules/admin/admin.module.js';
 import { RealtimeModule } from './modules/realtime/realtime.module.js';
 import { HealthModule } from './modules/health/health.module.js';
 import { MetricsModule, MetricsInterceptor } from './modules/metrics/index.js';
+import { ComplianceModule } from './modules/compliance/index.js';
 
 import { GlobalExceptionFilter } from './common/filters/global-exception.filter.js';
 import { IdempotencyInterceptor } from './common/interceptors/idempotency.interceptor.js';
@@ -70,6 +71,7 @@ import { IdempotencyInterceptor } from './common/interceptors/idempotency.interc
     RealtimeModule,
     HealthModule,
     MetricsModule,
+    ComplianceModule,
   ],
   providers: [
     {

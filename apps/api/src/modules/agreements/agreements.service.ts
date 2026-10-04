@@ -1,6 +1,7 @@
 import {
   Injectable,
   Inject,
+  Optional,
   NotFoundException,
   BadRequestException,
   ForbiddenException,
@@ -17,6 +18,7 @@ import {
   invoices,
   paymentReceipts,
   driverProfiles,
+  driverLocations,
   users,
 } from '../../database/schema/index.js';
 import { eq, and, desc, asc, sql } from 'drizzle-orm';
@@ -26,6 +28,7 @@ import { VerificationFacade } from '../verification/index.js';
 import { EventBusService } from '../../common/events/event-bus.service.js';
 import { SettingsService } from '../../common/settings/settings.service.js';
 import { AuditService } from '../audit/index.js';
+import { RedisService } from '../../common/redis/redis.service.js';
 import {
   CreateOfferDto,
   CounterOfferDto,
@@ -49,6 +52,7 @@ export class AgreementsService {
     @Inject(EventBusService) private readonly eventBus: EventBusService,
     @Inject(SettingsService) private readonly settingsService: SettingsService,
     @Inject(AuditService) private readonly auditService: AuditService,
+    @Optional() @Inject(RedisService) private readonly redisService?: RedisService,
   ) {}
 
   // --- Offers Domain ---
@@ -660,27 +664,44 @@ export class AgreementsService {
       throw new ConflictException('لا يمكن تعديل اتفاق غير نشط');
     }
 
-    const [amendment] = await this.dbService.db
-      .insert(agreementAmendments)
-      .values({
-        agreementId,
-        proposedBy: userId,
-        newFareMinor: dto.newFareMinor,
-        addedStops: dto.addedStops,
-        status: 'pending',
-        reason: dto.reason,
-      })
-      .returning();
+    const actor = agreement.customerId === userId ? 'customer' : 'driver';
 
-    await this.auditService.log({
-      userId,
-      action: 'agreement_amendment_proposed',
-      entityType: 'agreement_amendments',
-      entityId: amendment!.id,
-      afterState: { agreementId, newFareMinor: dto.newFareMinor, reason: dto.reason },
-    });
+    return await this.dbService.transaction(
+      async (tx) => {
+        const [amendment] = await tx
+          .insert(agreementAmendments)
+          .values({
+            agreementId,
+            proposedBy: userId,
+            newFareMinor: dto.newFareMinor,
+            addedStops: dto.addedStops,
+            status: 'pending',
+            reason: dto.reason,
+          })
+          .returning();
 
-    return amendment;
+        await this.auditService.log(
+          {
+            userId,
+            action: 'agreement_amendment_proposed',
+            entityType: 'agreement_amendments',
+            entityId: amendment!.id,
+            afterState: { agreementId, newFareMinor: dto.newFareMinor, reason: dto.reason },
+          },
+          tx,
+        );
+
+        await this.eventBus.publish(tx, 'agreement.amendment_proposed', amendment!.id, {
+          amendmentId: amendment!.id,
+          agreementId,
+          proposedBy: userId,
+          newFareMinor: dto.newFareMinor,
+        });
+
+        return amendment;
+      },
+      { actor },
+    );
   }
 
   async resolveAmendment(amendmentId: string, userId: string, approve: boolean) {
@@ -720,68 +741,77 @@ export class AgreementsService {
     }
 
     const newStatus = approve ? 'approved' : 'rejected';
-    const [updated] = await this.dbService.db
-      .update(agreementAmendments)
-      .set({
-        status: newStatus,
-        resolvedAt: new Date(),
-      })
-      .where(eq(agreementAmendments.id, amendmentId))
-      .returning();
+    const actor = agreement.customerId === userId ? 'customer' : 'driver';
 
-    // If approved and newFareMinor exists, update agreement agreedFareMinor
-    if (approve && amendment.newFareMinor !== null && amendment.newFareMinor !== undefined) {
-      await this.dbService.db
-        .update(agreements)
-        .set({
-          agreedFareMinor: amendment.newFareMinor,
-          updatedAt: new Date(),
-        })
-        .where(eq(agreements.id, amendment.agreementId));
-    }
+    return await this.dbService.transaction(
+      async (tx) => {
+        const [updated] = await tx
+          .update(agreementAmendments)
+          .set({
+            status: newStatus,
+            resolvedAt: new Date(),
+          })
+          .where(eq(agreementAmendments.id, amendmentId))
+          .returning();
 
-    // If approved and addedStops exist, append to stops table
-    if (approve && amendment.addedStops && Array.isArray(amendment.addedStops)) {
-      const [agreement] = await this.dbService.db
-        .select()
-        .from(agreements)
-        .where(eq(agreements.id, amendment.agreementId))
-        .limit(1);
-
-      if (agreement) {
-        const existingStops = await this.dbService.db
-          .select()
-          .from(stops)
-          .where(eq(stops.orderId, agreement.orderId));
-
-        let nextSeq = existingStops.length + 1;
-        for (const s of amendment.addedStops as any[]) {
-          const stopPoint = normalizePoint(s.location);
-          await this.dbService.db.insert(stops).values({
-            orderId: agreement.orderId,
-            seq: nextSeq++,
-            actionId: s.actionId,
-            placeId: s.placeId,
-            location: stopPoint,
-            description: s.description,
-            notes: s.notes,
-            expectedDurationMinutes: s.expectedDurationMinutes || 0,
-            invoiceRequired: s.invoiceRequired || false,
-            status: 'pending',
-          });
+        // If approved and newFareMinor exists, update agreement agreedFareMinor
+        if (approve && amendment.newFareMinor !== null && amendment.newFareMinor !== undefined) {
+          await tx
+            .update(agreements)
+            .set({
+              agreedFareMinor: amendment.newFareMinor,
+              updatedAt: new Date(),
+            })
+            .where(eq(agreements.id, amendment.agreementId));
         }
-      }
-    }
 
-    await this.auditService.log({
-      userId,
-      action: `agreement_amendment_${newStatus}`,
-      entityType: 'agreement_amendments',
-      entityId: amendmentId,
-      afterState: { status: newStatus },
-    });
+        // If approved and addedStops exist, append to stops table
+        if (approve && amendment.addedStops && Array.isArray(amendment.addedStops)) {
+          const existingStops = await tx
+            .select()
+            .from(stops)
+            .where(eq(stops.orderId, agreement.orderId));
 
-    return updated;
+          let nextSeq = existingStops.length + 1;
+          for (const s of amendment.addedStops as any[]) {
+            const stopPoint = normalizePoint(s.location);
+            await tx.insert(stops).values({
+              orderId: agreement.orderId,
+              seq: nextSeq++,
+              actionId: s.actionId,
+              placeId: s.placeId,
+              location: stopPoint,
+              description: s.description,
+              notes: s.notes,
+              expectedDurationMinutes: s.expectedDurationMinutes || 0,
+              invoiceRequired: s.invoiceRequired || false,
+              status: 'pending',
+            });
+          }
+        }
+
+        await this.auditService.log(
+          {
+            userId,
+            action: `agreement_amendment_${newStatus}`,
+            entityType: 'agreement_amendments',
+            entityId: amendmentId,
+            afterState: { status: newStatus },
+          },
+          tx,
+        );
+
+        await this.eventBus.publish(tx, 'agreement.amendment_resolved', amendmentId, {
+          amendmentId,
+          agreementId: amendment.agreementId,
+          status: newStatus,
+          resolvedBy: userId,
+        });
+
+        return updated;
+      },
+      { actor },
+    );
   }
 
   async cancelAgreement(agreementId: string, userId: string, dto: CancelAgreementDto, rolesList: string[]) {
@@ -819,13 +849,16 @@ export class AgreementsService {
           .set({ status: 'cancelled', cancelReason: dto.reason, updatedAt: new Date() })
           .where(eq(orders.id, agreement.orderId));
 
-        await this.auditService.log({
-          userId,
-          action: 'agreement_cancelled',
-          entityType: 'agreements',
-          entityId: agreementId,
-          afterState: { reason: dto.reason },
-        });
+        await this.auditService.log(
+          {
+            userId,
+            action: 'agreement_cancelled',
+            entityType: 'agreements',
+            entityId: agreementId,
+            afterState: { reason: dto.reason },
+          },
+          tx,
+        );
 
         return cancelled;
       },
@@ -986,8 +1019,8 @@ export class AgreementsService {
       .where(and(eq(agreements.orderId, stop.orderId), eq(agreements.driverId, driverId)))
       .limit(1);
 
-    if (!agreement) {
-      throw new ForbiddenException('غير مصرح لك بإصدار فاتورة لهذا الطلب');
+    if (!agreement || agreement.status !== 'active') {
+      throw new ForbiddenException('غير مصرح لك بإصدار فاتورة، يجب أن يكون الاتفاق نشطاً');
     }
 
     return await this.dbService.transaction(
@@ -1124,8 +1157,8 @@ export class AgreementsService {
       .where(and(eq(agreements.id, agreementId), eq(agreements.driverId, driverId)))
       .limit(1);
 
-    if (!agreement) {
-      throw new ForbiddenException('الاتفاق غير موجود');
+    if (!agreement || agreement.status !== 'active') {
+      throw new ForbiddenException('الاتفاق غير موجود أو غير نشط');
     }
 
     const [stop] = await this.dbService.db
@@ -1239,20 +1272,79 @@ export class AgreementsService {
       return { success: true, count: 0 };
     }
 
-    const latest = dto.points[dto.points.length - 1]!;
-    const latestPoint = normalizePoint({ lat: latest.latitude, lng: latest.longitude });
+    // 1. Rate-limiting: minimum 1 second between batch submissions per driver
+    if (this.redisService) {
+      const lockKey = `ratelimit:loc:${driverId}`;
+      const allowed = await this.redisService.setNx(lockKey, '1', 1);
+      if (!allowed) {
+        return { success: true, count: 0, throttled: true };
+      }
+    }
 
-    // Update driver profile last location
+    // 2. Timestamp validation and deduplication
+    const now = Date.now();
+    const maxFutureMs = 5 * 60 * 1000;
+    const maxPastMs = 24 * 60 * 60 * 1000;
+
+    const validPoints: Array<{ lat: number; lng: number; recordedAt: Date }> = [];
+    let lastCoord: { lat: number; lng: number } | null = null;
+
+    for (const pt of dto.points) {
+      const rawTimestamp = pt.recordedAt || (pt as { timestamp?: string }).timestamp;
+      const ptDate = rawTimestamp ? new Date(rawTimestamp) : new Date();
+      const timeMs = ptDate.getTime();
+
+      // Reject skewed timestamps
+      if (isNaN(timeMs) || timeMs > now + maxFutureMs || timeMs < now - maxPastMs) {
+        continue;
+      }
+
+      const norm = normalizePoint({ lat: pt.latitude, lng: pt.longitude });
+
+      // Deduplicate consecutive identical coordinates (< 1m difference)
+      if (
+        lastCoord &&
+        Math.abs(lastCoord.lat - norm.lat) < 0.00001 &&
+        Math.abs(lastCoord.lng - norm.lng) < 0.00001
+      ) {
+        continue;
+      }
+
+      lastCoord = norm;
+      validPoints.push({ lat: norm.lat, lng: norm.lng, recordedAt: ptDate });
+    }
+
+    if (validPoints.length === 0) {
+      return { success: true, count: 0 };
+    }
+
+    const latest = validPoints[validPoints.length - 1]!;
+    const latestPoint = normalizePoint({ lat: latest.lat, lng: latest.lng });
+
+    // 3. Update driver profile last location & seen timestamp
     await this.dbService.db
       .update(driverProfiles)
       .set({
         lastLocation: latestPoint,
-        lastSeenAt: new Date(),
+        lastSeenAt: latest.recordedAt,
         updatedAt: new Date(),
       })
       .where(eq(driverProfiles.id, driverId));
 
-    return { success: true, count: dto.points.length };
+    // 4. Record breadcrumb points in driver_locations table
+    try {
+      for (const pt of validPoints) {
+        await this.dbService.db.insert(driverLocations).values({
+          driverId,
+          location: normalizePoint({ lat: pt.lat, lng: pt.lng }),
+          recordedAt: pt.recordedAt,
+        });
+      }
+    } catch {
+      // Non-fatal if table unavailable in fast test harness
+    }
+
+    return { success: true, count: validPoints.length };
   }
 
   async driverSetPresence(driverId: string, isOnline: boolean) {

@@ -6,10 +6,12 @@ useDefault = true
 [allowlist]
 description = "Allow specific dummy 64-hex key strictly within designated test, CI, and example paths"
 regexes = [
-    '''0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef'''
+    '''0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef''',
+    '''e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'''
 ]
 paths = [
     '''^\.env\.example$''',
     '''^\.github/workflows/ci\.yml$''',
-    '''^apps/api/test/otp-security\.spec\.ts$'''
+    '''^apps/api/test/otp-security\.spec\.ts$''',
+    '''^apps/api/test/security_auth\.spec\.ts$'''
 ]
