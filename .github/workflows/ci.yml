@@ -73,7 +73,15 @@ jobs:
       - name: Typecheck
         run: pnpm typecheck
 
-      - name: Run Tests
+      - name: Verify Schema Drift (Drizzle vs Migrations)
+        run: pnpm --filter @wasel/api exec tsx ../../scripts/check-schema-drift.ts
+
+      - name: Real PostGIS & Spatial GiST Index Verification
+        env:
+          DATABASE_URL: postgresql://wasel_user:wasel_secret@localhost:5432/wasel_db
+        run: pnpm --filter @wasel/api exec tsx ../../scripts/test-real-postgis.ts
+
+      - name: Run Tests (on Real PostGIS Container)
         env:
           DATABASE_URL: postgresql://wasel_user:wasel_secret@localhost:5432/wasel_db
           REDIS_URL: redis://localhost:6379
