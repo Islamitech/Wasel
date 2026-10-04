@@ -3,6 +3,8 @@ import {
   Inject,
   NotFoundException,
   ForbiddenException,
+  BadRequestException,
+  ConflictException,
 } from '@nestjs/common';
 import { DatabaseService } from '../../database/database.service.js';
 import {
@@ -15,13 +17,14 @@ import {
   verificationLevels,
   users,
 } from '../../database/schema/index.js';
-import { eq, desc } from 'drizzle-orm';
+import { eq, and, desc } from 'drizzle-orm';
 import { AuditService } from '../audit/index.js';
 import {
   CreateRatingDto,
   CreateDisputeDto,
   DisputeEventDto,
   ResolveDisputeDto,
+  ErrorCode,
   UserRole,
 } from '@wasel/shared';
 
@@ -43,35 +46,78 @@ export class RatingsService {
       throw new NotFoundException('الاتفاق غير موجود');
     }
 
+    if (agreement.status !== 'completed' && agreement.status !== 'fulfilled') {
+      throw new BadRequestException({
+        errorCode: ErrorCode.RATING_NOT_ALLOWED,
+        message: 'لا يمكن تقييم الرحلة قبل اكتمالها',
+      });
+    }
+
+    if (!Number.isInteger(dto.score) || dto.score < 1 || dto.score > 5) {
+      throw new BadRequestException({
+        errorCode: ErrorCode.VALIDATION_ERROR,
+        message: 'درجة التقييم يجب أن تكون رقماً صحيحاً بين 1 و 5',
+      });
+    }
+
     const isCustomer = agreement.customerId === reviewerId;
     const isDriver = agreement.driverId === reviewerId;
 
     if (!isCustomer && !isDriver) {
-      throw new ForbiddenException('غير مصرح لك بتقييم هذه الرحلة');
+      throw new ForbiddenException({
+        errorCode: ErrorCode.OWNERSHIP_VIOLATION,
+        message: 'غير مصرح لك بتقييم هذه الرحلة',
+      });
+    }
+
+    const [existing] = await this.dbService.db
+      .select()
+      .from(ratings)
+      .where(and(eq(ratings.orderId, agreement.orderId), eq(ratings.reviewerId, reviewerId)))
+      .limit(1);
+
+    if (existing) {
+      throw new ConflictException({
+        errorCode: ErrorCode.RATING_ALREADY_SUBMITTED,
+        message: 'تم تسجيل تقييم لهذه الرحلة بالفعل',
+      });
     }
 
     const revieweeId = isCustomer ? agreement.driverId : agreement.customerId;
     const actor = isCustomer ? 'customer' : 'driver';
 
-    return await this.dbService.transaction(
-      async (tx) => {
-        // Insert rating (database trigger trg_ratings_update_aggregates updates profile rating_avg and rating_count)
-        const [rating] = await tx
-          .insert(ratings)
-          .values({
-            orderId: agreement.orderId,
-            reviewerId,
-            revieweeId,
-            score: dto.score,
-            tags: dto.tags || [],
-            comment: dto.comment,
-          })
-          .returning();
+    try {
+      return await this.dbService.transaction(
+        async (tx) => {
+          // Insert rating (database trigger trg_ratings_update_aggregates updates profile rating_avg and rating_count)
+          const [rating] = await tx
+            .insert(ratings)
+            .values({
+              orderId: agreement.orderId,
+              reviewerId,
+              revieweeId,
+              score: dto.score,
+              tags: dto.tags || [],
+              comment: dto.comment,
+            })
+            .returning();
 
-        return rating;
-      },
-      { actor },
-    );
+          return rating;
+        },
+        { actor },
+      );
+    } catch (err: unknown) {
+      const errObj = err as Record<string, unknown>;
+      const code = typeof errObj?.code === 'string' ? errObj.code : '';
+      const message = typeof errObj?.message === 'string' ? errObj.message : '';
+      if (code === '23505' || message.includes('duplicate key') || message.includes('unique')) {
+        throw new ConflictException({
+          errorCode: ErrorCode.RATING_ALREADY_SUBMITTED,
+          message: 'تم تسجيل تقييم لهذه الرحلة بالفعل',
+        });
+      }
+      throw err;
+    }
   }
 
   async getDriverReputation(driverId: string) {
@@ -129,6 +175,22 @@ export class RatingsService {
       throw new NotFoundException('الطلب غير موجود');
     }
 
+    const [agreement] = await this.dbService.db
+      .select()
+      .from(agreements)
+      .where(eq(agreements.orderId, dto.orderId))
+      .limit(1);
+
+    const isCustomer = order.customerId === userId;
+    const isDriver = agreement?.driverId === userId;
+
+    if (!isCustomer && !isDriver) {
+      throw new ForbiddenException({
+        errorCode: ErrorCode.OWNERSHIP_VIOLATION,
+        message: 'غير مصرح لك بفتح نزاع على هذا الطلب',
+      });
+    }
+
     return await this.dbService.transaction(
       async (tx) => {
         const [dispute] = await tx
@@ -160,7 +222,7 @@ export class RatingsService {
 
         return dispute;
       },
-      { actor: 'customer' },
+      { actor: isCustomer ? 'customer' : 'driver' },
     );
   }
 

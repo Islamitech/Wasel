@@ -61,7 +61,6 @@ services:
       /usr/bin/mc alias set myminio http://minio:9000 minio_admin minio_password;
       /usr/bin/mc mb --ignore-existing myminio/wasel-public;
       /usr/bin/mc mb --ignore-existing myminio/wasel-identity-private;
-      /usr/bin/mc anonymous set download myminio/wasel-public;
       exit 0;
       "
 

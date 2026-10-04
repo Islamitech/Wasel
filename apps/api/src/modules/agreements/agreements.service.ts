@@ -176,8 +176,15 @@ export class AgreementsService {
 
     const isAdmin = rolesList.includes(UserRole.ADMIN);
     const isCustomer = order.customerId === userId;
+    const isDriver = rolesList.includes(UserRole.DRIVER);
 
     if (!isAdmin && !isCustomer) {
+      if (!isDriver) {
+        throw new ForbiddenException({
+          errorCode: ErrorCode.OWNERSHIP_VIOLATION,
+          message: 'غير مصرح بالاطلاع على عروض هذا الطلب',
+        });
+      }
       // Driver only sees their own offer
       const driverOffers = await this.dbService.db
         .select()
@@ -642,6 +649,13 @@ export class AgreementsService {
       throw new NotFoundException('الاتفاق غير موجود');
     }
 
+    if (agreement.customerId !== userId && agreement.driverId !== userId) {
+      throw new ForbiddenException({
+        errorCode: ErrorCode.OWNERSHIP_VIOLATION,
+        message: 'غير مصرح لك باقتراح تعديل على هذا الاتفاق',
+      });
+    }
+
     if (agreement.status !== 'active') {
       throw new ConflictException('لا يمكن تعديل اتفاق غير نشط');
     }
@@ -678,6 +692,19 @@ export class AgreementsService {
 
     if (!amendment) {
       throw new NotFoundException('طلب التعديل غير موجود');
+    }
+
+    const [agreement] = await this.dbService.db
+      .select()
+      .from(agreements)
+      .where(eq(agreements.id, amendment.agreementId))
+      .limit(1);
+
+    if (!agreement || (agreement.customerId !== userId && agreement.driverId !== userId)) {
+      throw new ForbiddenException({
+        errorCode: ErrorCode.OWNERSHIP_VIOLATION,
+        message: 'غير مصرح لك بحسم هذا التعديل',
+      });
     }
 
     if (amendment.status !== 'pending') {
@@ -825,8 +852,8 @@ export class AgreementsService {
       .where(eq(stops.id, stopId))
       .limit(1);
 
-    if (!stop) {
-      throw new NotFoundException('المحطة غير موجودة');
+    if (!stop || stop.orderId !== agreement.orderId) {
+      throw new NotFoundException('المحطة غير موجودة في هذا الطلب');
     }
 
     return await this.dbService.transaction(
@@ -914,6 +941,16 @@ export class AgreementsService {
       throw new ForbiddenException('الاتفاق غير موجود');
     }
 
+    const [stop] = await this.dbService.db
+      .select()
+      .from(stops)
+      .where(eq(stops.id, stopId))
+      .limit(1);
+
+    if (!stop || stop.orderId !== agreement.orderId) {
+      throw new NotFoundException('المحطة غير موجودة في هذا الطلب');
+    }
+
     // Record departure on stop_visit
     const [latestVisit] = await this.dbService.db
       .select()
@@ -991,6 +1028,32 @@ export class AgreementsService {
       throw new NotFoundException('الفاتورة غير موجودة');
     }
 
+    const [order] = await this.dbService.db
+      .select()
+      .from(orders)
+      .where(eq(orders.id, invoice.orderId))
+      .limit(1);
+
+    if (!order) {
+      throw new NotFoundException('الطلب المرتبط بالفاتورة غير موجود');
+    }
+
+    const [agreement] = await this.dbService.db
+      .select()
+      .from(agreements)
+      .where(eq(agreements.orderId, invoice.orderId))
+      .limit(1);
+
+    const isCustomer = order.customerId === userId;
+    const isDriver = agreement?.driverId === userId;
+
+    if (!isCustomer && !isDriver) {
+      throw new ForbiddenException({
+        errorCode: ErrorCode.OWNERSHIP_VIOLATION,
+        message: 'غير مصرح لك بتسجيل دفعة لهذه الفاتورة',
+      });
+    }
+
     return await this.dbService.transaction(
       async (tx) => {
         const [receipt] = await tx
@@ -1011,7 +1074,7 @@ export class AgreementsService {
 
         return receipt;
       },
-      { actor: 'customer' },
+      { actor: isCustomer ? 'customer' : 'driver' },
     );
   }
 
@@ -1063,6 +1126,16 @@ export class AgreementsService {
 
     if (!agreement) {
       throw new ForbiddenException('الاتفاق غير موجود');
+    }
+
+    const [stop] = await this.dbService.db
+      .select()
+      .from(stops)
+      .where(eq(stops.id, stopId))
+      .limit(1);
+
+    if (!stop || stop.orderId !== agreement.orderId) {
+      throw new NotFoundException('المحطة غير موجودة في هذا الطلب');
     }
 
     return await this.dbService.transaction(

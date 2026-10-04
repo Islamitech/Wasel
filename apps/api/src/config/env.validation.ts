@@ -25,6 +25,8 @@ export const EnvSchema = z
       .string()
       .length(64, 'ENCRYPTION_KEY must be a 64-character hex string (32 bytes)')
       .default('0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef'),
+    ENCRYPTION_KEY_ID: z.string().default('v1'),
+    ENCRYPTION_KEYRING: z.string().optional(),
     STORAGE_ENDPOINT: z.string().default('localhost'),
     STORAGE_PORT: z.coerce.number().default(9000),
     STORAGE_USE_SSL: z

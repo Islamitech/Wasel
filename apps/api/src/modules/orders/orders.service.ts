@@ -19,15 +19,18 @@ import {
   vehicleTypes,
   loadSizeVehicleTypes,
   settings,
+  driverProfiles,
   customerProfiles,
   users,
   regions,
 } from '../../database/schema/index.js';
 import { eq, and, desc, asc, sql } from 'drizzle-orm';
-import { normalizePoint, isPointInsidePolygon } from '../../common/geo/index.js';
+import { normalizePoint, isPointInsidePolygon, obfuscatePoint } from '../../common/geo/index.js';
 import { EventBusService } from '../../common/events/event-bus.service.js';
 import { S3StorageService } from '../../common/storage/s3-storage.service.js';
 import { SettingsService } from '../../common/settings/settings.service.js';
+import { SubscriptionsFacade } from '../subscriptions/index.js';
+import { VerificationFacade } from '../verification/index.js';
 import { maskPhone } from '../../common/utils/masking.js';
 import {
   CreateOrderDto,
@@ -35,6 +38,7 @@ import {
   CreateOrderStopDto,
   CancelOrderDto,
   OrderListQueryDto,
+  OrderUploadUrlRequestDto,
   ErrorCode,
   UserRole,
 } from '@wasel/shared';
@@ -47,6 +51,8 @@ export class OrdersService {
     @Inject(EventBusService) private readonly eventBus: EventBusService,
     @Inject(S3StorageService) private readonly storageService: S3StorageService,
     @Inject(SettingsService) private readonly settingsService: SettingsService,
+    @Inject(SubscriptionsFacade) private readonly subsFacade: SubscriptionsFacade,
+    @Inject(VerificationFacade) private readonly verificationFacade: VerificationFacade,
   ) {}
 
   async createDraftOrder(customerId: string, dto: CreateOrderDto) {
@@ -234,7 +240,7 @@ export class OrdersService {
     return { success: true, message: 'تم حذف المحطة بنجاح' };
   }
 
-  async quoteOrder(orderId: string, _userId?: string) {
+  async quoteOrder(orderId: string, userId?: string, rolesList: string[] = []) {
     const [order] = await this.dbService.db
       .select()
       .from(orders)
@@ -243,6 +249,60 @@ export class OrdersService {
 
     if (!order) {
       throw new NotFoundException('الطلب غير موجود');
+    }
+
+    if (userId) {
+      const isAdmin = rolesList.includes(UserRole.ADMIN);
+      const isOwner = order.customerId === userId;
+
+      if (!isAdmin && !isOwner) {
+        const isDriver = rolesList.includes(UserRole.DRIVER);
+        if (!isDriver) {
+          throw new ForbiddenException({
+            errorCode: ErrorCode.OWNERSHIP_VIOLATION,
+            message: 'غير مصرح لك باستعراض تسعير هذا الطلب',
+          });
+        }
+
+        const isSubscribed = await this.subsFacade.isDriverSubscribed(userId);
+        if (!isSubscribed) {
+          throw new ForbiddenException({
+            errorCode: ErrorCode.SUBSCRIPTION_REQUIRED,
+            message: 'يجب تفعيل اشتراك ساري المفعول للاطلاع على تسعير الطلب',
+          });
+        }
+
+        const [driver] = await this.dbService.db
+          .select()
+          .from(driverProfiles)
+          .where(eq(driverProfiles.id, userId))
+          .limit(1);
+
+        if (!driver || driver.status !== 'approved') {
+          throw new ForbiddenException({
+            errorCode: ErrorCode.VERIFICATION_LEVEL_TOO_LOW,
+            message: 'حساب الكابتن لم يتم توثيقه أو اعتماده بعد',
+          });
+        }
+
+        const isEligible = await this.verificationFacade.isDriverEligibleForValueTier(
+          userId,
+          order.valueTierId,
+        );
+        if (!isEligible) {
+          throw new ForbiddenException({
+            errorCode: ErrorCode.DRIVER_NOT_ELIGIBLE,
+            message: 'مستوى توثيق الكابتن لا يسمح بالاطلاع على تسعير هذا الطلب',
+          });
+        }
+
+        if (driver.regionId && order.regionId && driver.regionId !== order.regionId) {
+          throw new ForbiddenException({
+            errorCode: ErrorCode.LOCATION_OUTSIDE_REGION,
+            message: 'الطلب خارج نطاق تغطية منطقة الكابتن',
+          });
+        }
+      }
     }
 
     // Call database SQL functions directly:
@@ -336,7 +396,7 @@ export class OrdersService {
     }
 
     // Quote and freeze pricing snapshot
-    const quote = await this.quoteOrder(orderId, customerId);
+    const quote = await this.quoteOrder(orderId, customerId, [UserRole.CUSTOMER]);
 
     const orderTtlMinutes = await this.settingsService.getOrderTtlMinutes(order.regionId);
     const publishedAt = new Date();
@@ -501,19 +561,128 @@ export class OrdersService {
       .limit(1);
 
     const isAdmin = rolesList.includes(UserRole.ADMIN);
-    const isCustomer = order.customerId === userId;
-    const isDriver = agreement?.driverId === userId;
+    const isOwner = order.customerId === userId;
+    const isAgreementDriver = agreement?.driverId === userId;
 
-    if (!isAdmin && !isCustomer && !isDriver) {
-      // Driver radar view only if order is published/matching
-      if (order.status !== 'published' && order.status !== 'matching' && order.status !== 'offers_received') {
+    if (!isAdmin && !isOwner && !isAgreementDriver) {
+      // Must be an eligible, subscribed driver, belonging to same region, with order in open status
+      const isDriverRole = rolesList.includes(UserRole.DRIVER);
+      if (!isDriverRole) {
         throw new ForbiddenException({
           errorCode: ErrorCode.OWNERSHIP_VIOLATION,
           message: 'غير مصرح لك باستعراض تفاصيل هذه الطلبية',
         });
       }
+
+      if (order.status !== 'published' && order.status !== 'matching' && order.status !== 'offers_received') {
+        throw new ForbiddenException({
+          errorCode: ErrorCode.OWNERSHIP_VIOLATION,
+          message: 'الطلب غير متاح للاستعراض العام',
+        });
+      }
+
+      const isSubscribed = await this.subsFacade.isDriverSubscribed(userId);
+      if (!isSubscribed) {
+        throw new ForbiddenException({
+          errorCode: ErrorCode.SUBSCRIPTION_REQUIRED,
+          message: 'يجب تفعيل اشتراك ساري المفعول للاطلاع على رادار الطلبات',
+        });
+      }
+
+      const [driver] = await this.dbService.db
+        .select()
+        .from(driverProfiles)
+        .where(eq(driverProfiles.id, userId))
+        .limit(1);
+
+      if (!driver || driver.status !== 'approved') {
+        throw new ForbiddenException({
+          errorCode: ErrorCode.VERIFICATION_LEVEL_TOO_LOW,
+          message: 'حساب الكابتن لم يتم توثيقه أو اعتماده بعد',
+        });
+      }
+
+      const isEligible = await this.verificationFacade.isDriverEligibleForValueTier(
+        userId,
+        order.valueTierId,
+      );
+      if (!isEligible) {
+        throw new ForbiddenException({
+          errorCode: ErrorCode.DRIVER_NOT_ELIGIBLE,
+          message: 'مستوى توثيق الكابتن لا يؤهله للاطلاع على هذا الطلب',
+        });
+      }
+
+      if (driver.regionId && order.regionId && driver.regionId !== order.regionId) {
+        throw new ForbiddenException({
+          errorCode: ErrorCode.LOCATION_OUTSIDE_REGION,
+          message: 'الطلب خارج نطاق تغطية منطقة الكابتن',
+        });
+      }
+
+      // Return OrderRadarView for Driver:
+      // NO customerId, NO customerName, NO customerPhone, Obfuscated location (~300m grid)
+      const resolutionMeters = await this.settingsService.getLocationObfuscationResolutionMeters(order.regionId);
+      const rawCustLoc = normalizePoint(order.customerLocation);
+      const obfuscatedCustLoc = obfuscatePoint(rawCustLoc, resolutionMeters);
+
+      const [customerUser] = await this.dbService.db
+        .select()
+        .from(users)
+        .where(eq(users.id, order.customerId))
+        .limit(1);
+
+      const orderStops = await this.dbService.db
+        .select()
+        .from(stops)
+        .where(eq(stops.orderId, orderId))
+        .orderBy(asc(stops.seq));
+
+      return {
+        id: order.id,
+        regionId: order.regionId,
+        isRadarView: true,
+        status: order.status,
+        valueTierId: order.valueTierId,
+        loadSizeId: order.loadSizeId,
+        waitMode: order.waitMode,
+        customerPhoneMasked: maskPhone(customerUser?.phone),
+        customerLocation: {
+          latitude: obfuscatedCustLoc.lat,
+          longitude: obfuscatedCustLoc.lng,
+          lat: obfuscatedCustLoc.lat,
+          lng: obfuscatedCustLoc.lng,
+        },
+        minFareMinor: order.minFareMinor,
+        pricingSnapshot: order.pricingSnapshot,
+        publishedAt: order.publishedAt?.toISOString() || null,
+        expiresAt: order.expiresAt?.toISOString() || null,
+        stops: orderStops.map((s) => {
+          const rawStopLoc = normalizePoint(s.location);
+          const obfStopLoc = obfuscatePoint(rawStopLoc, resolutionMeters);
+          return {
+            id: s.id,
+            seq: s.seq,
+            actionId: s.actionId,
+            placeId: s.placeId,
+            location: {
+              latitude: obfStopLoc.lat,
+              longitude: obfStopLoc.lng,
+              lat: obfStopLoc.lat,
+              lng: obfStopLoc.lng,
+            },
+            description: s.description,
+            notes: s.notes,
+            expectedDurationMinutes: s.expectedDurationMinutes,
+            invoiceRequired: s.invoiceRequired,
+            status: s.status,
+          };
+        }),
+        createdAt: order.createdAt.toISOString(),
+      };
     }
 
+    // Full Details View for Owner / Admin / Agreement Driver:
     const orderStops = await this.dbService.db
       .select()
       .from(stops)
@@ -525,7 +694,6 @@ export class OrdersService {
       .from(invoices)
       .where(eq(invoices.orderId, orderId));
 
-    // Privacy rule: Only unmask customer phone if an active agreement exists with the driver
     const [customerUser] = await this.dbService.db
       .select()
       .from(users)
@@ -533,9 +701,35 @@ export class OrdersService {
       .limit(1);
 
     const hasActiveAgreement = agreement && agreement.status === 'active';
-    const canSeeFullPhone = isCustomer || isAdmin || (isDriver && hasActiveAgreement);
-
+    const canSeeFullPhone = isOwner || isAdmin || (isAgreementDriver && hasActiveAgreement);
     const custLoc = normalizePoint(order.customerLocation);
+
+    // Fetch media with short-lived presigned download URLs if authorized
+    const mediaList = await this.dbService.db
+      .select()
+      .from(orderMedia)
+      .where(eq(orderMedia.orderId, orderId));
+
+    const privateBucket = process.env.STORAGE_PRIVATE_BUCKET || 'wasel-identity-private';
+    const mediaWithUrls = await Promise.all(
+      mediaList.map(async (m) => {
+        let downloadUrl = '';
+        try {
+          downloadUrl = await this.storageService.getPresignedDownloadUrl(privateBucket, m.storageKey, 3600);
+        } catch {
+          // ignore error
+        }
+        return {
+          id: m.id,
+          stopId: m.stopId,
+          uploaderId: m.uploaderId,
+          mediaType: m.mediaType,
+          storageKey: m.storageKey,
+          downloadUrl,
+          createdAt: m.createdAt.toISOString(),
+        };
+      }),
+    );
 
     return {
       id: order.id,
@@ -580,31 +774,140 @@ export class OrdersService {
       }),
       agreement: agreement || null,
       invoices: orderInvoices,
+      media: mediaWithUrls,
       createdAt: order.createdAt.toISOString(),
       updatedAt: order.updatedAt.toISOString(),
     };
   }
 
-  async getMediaUploadUrl(orderId: string, userId: string, mediaType: string, stopId?: string) {
-    const bucket = process.env.STORAGE_PUBLIC_BUCKET || 'wasel-public';
-    const ext = mediaType.split('/')[1] || 'jpg';
+  async getMediaUploadUrl(
+    orderId: string,
+    userId: string,
+    dto: OrderUploadUrlRequestDto,
+    rolesList: string[] = [],
+  ) {
+    const [order] = await this.dbService.db
+      .select()
+      .from(orders)
+      .where(eq(orders.id, orderId))
+      .limit(1);
+
+    if (!order) {
+      throw new NotFoundException('الطلب غير موجود');
+    }
+
+    const [agreement] = await this.dbService.db
+      .select()
+      .from(agreements)
+      .where(eq(agreements.orderId, orderId))
+      .limit(1);
+
+    const isAdmin = rolesList.includes(UserRole.ADMIN);
+    const isOwner = order.customerId === userId;
+    const isAgreementDriver = agreement?.driverId === userId && agreement.status === 'active';
+
+    if (!isAdmin && !isOwner && !isAgreementDriver) {
+      throw new ForbiddenException({
+        errorCode: ErrorCode.OWNERSHIP_VIOLATION,
+        message: 'غير مصرح لك بإرفاق وسائط لهذا الطلب',
+      });
+    }
+
+    // Enforce media count limit per order
+    const maxMediaCount = await this.settingsService.getOrderMediaMaxCount(order.regionId);
+    const [existingCount] = await this.dbService.db
+      .select({ count: sql`count(*)` })
+      .from(orderMedia)
+      .where(eq(orderMedia.orderId, orderId));
+
+    if (Number((existingCount as any)?.count || 0) >= maxMediaCount) {
+      throw new BadRequestException({
+        errorCode: ErrorCode.ORDER_MEDIA_LIMIT_EXCEEDED,
+        message: `تم تجاوز الحد الأقصى للملفات المرفقة بالطلب (${maxMediaCount})`,
+      });
+    }
+
+    const EXTENSION_MAP: Record<string, string> = {
+      'image/jpeg': 'jpg',
+      'image/png': 'png',
+      'image/webp': 'webp',
+      'audio/webm': 'webm',
+      'audio/mp4': 'mp4',
+      'audio/mpeg': 'mp3',
+    };
+
+    const ext = EXTENSION_MAP[dto.mediaType] || 'jpg';
+    const bucket = process.env.STORAGE_PRIVATE_BUCKET || 'wasel-identity-private';
     const fileKey = `orders/${orderId}/${crypto.randomUUID()}.${ext}`;
 
-    const res = await this.storageService.getPresignedUploadUrl(bucket, fileKey, mediaType, 900);
+    const res = await this.storageService.getPresignedUploadUrl(bucket, fileKey, dto.mediaType, 900);
 
-    // Insert orderMedia record
-    await this.dbService.db.insert(orderMedia).values({
-      orderId,
-      stopId,
-      uploaderId: userId,
-      mediaType,
-      storageKey: res.fileKey,
-    });
+    const [createdMedia] = await this.dbService.db
+      .insert(orderMedia)
+      .values({
+        orderId,
+        stopId: dto.stopId || null,
+        uploaderId: userId,
+        mediaType: dto.mediaType,
+        storageKey: res.fileKey,
+      })
+      .returning();
 
     return {
+      id: createdMedia?.id,
+      mediaId: createdMedia?.id,
       uploadUrl: res.uploadUrl,
       storageKey: res.fileKey,
       expiresInSeconds: res.expiresInSeconds,
+    };
+  }
+
+  async getMediaDownloadUrl(
+    orderId: string,
+    mediaId: string,
+    userId: string,
+    rolesList: string[] = [],
+  ) {
+    const [media] = await this.dbService.db
+      .select()
+      .from(orderMedia)
+      .where(and(eq(orderMedia.id, mediaId), eq(orderMedia.orderId, orderId)))
+      .limit(1);
+
+    if (!media) {
+      throw new NotFoundException('الملف المرفق غير موجود');
+    }
+
+    const [order] = await this.dbService.db
+      .select()
+      .from(orders)
+      .where(eq(orders.id, orderId))
+      .limit(1);
+
+    const [agreement] = await this.dbService.db
+      .select()
+      .from(agreements)
+      .where(eq(agreements.orderId, orderId))
+      .limit(1);
+
+    const isAdmin = rolesList.includes(UserRole.ADMIN);
+    const isOwner = order?.customerId === userId;
+    const isAgreementDriver = agreement?.driverId === userId;
+
+    if (!isAdmin && !isOwner && !isAgreementDriver) {
+      throw new ForbiddenException({
+        errorCode: ErrorCode.OWNERSHIP_VIOLATION,
+        message: 'غير مصرح لك بتحميل هذا الملف',
+      });
+    }
+
+    const bucket = process.env.STORAGE_PRIVATE_BUCKET || 'wasel-identity-private';
+    const downloadUrl = await this.storageService.getPresignedDownloadUrl(bucket, media.storageKey, 3600);
+
+    return {
+      id: media.id,
+      downloadUrl,
+      expiresInSeconds: 3600,
     };
   }
 

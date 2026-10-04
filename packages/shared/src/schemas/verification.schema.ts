@@ -14,9 +14,23 @@ export const RegisterVehicleSchema = z.object({
 
 export type RegisterVehicleDto = z.infer<typeof RegisterVehicleSchema>;
 
+export const AllowedDocumentMediaType = z.enum([
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+  'application/pdf',
+]);
+export type AllowedDocumentMediaType = z.infer<typeof AllowedDocumentMediaType>;
+
+export const DocumentUploadUrlRequestSchema = z.object({
+  mediaType: AllowedDocumentMediaType.default('image/jpeg'),
+});
+export type DocumentUploadUrlRequestDto = z.infer<typeof DocumentUploadUrlRequestSchema>;
+
 export const SubmitDocumentSchema = z.object({
   type: z.string().min(2, 'نوع المستند مطلوب'),
   storageKey: z.string().min(1, 'مسار الملف مطلوب'),
+  metadata: z.record(z.unknown()).optional(),
   encryptedMetadata: z.string().optional(),
 });
 

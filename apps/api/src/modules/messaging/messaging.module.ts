@@ -4,8 +4,10 @@ import { MessagingController } from './messaging.controller.js';
 import { MessagingFacade } from './messaging.facade.js';
 import { EventsModule } from '../../common/events/events.module.js';
 
+import { AuditModule } from '../audit/index.js';
+
 @Module({
-  imports: [EventsModule],
+  imports: [EventsModule, AuditModule],
   controllers: [MessagingController],
   providers: [MessagingService, MessagingFacade],
   exports: [MessagingFacade, MessagingService],

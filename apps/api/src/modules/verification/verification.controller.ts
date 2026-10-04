@@ -24,6 +24,8 @@ import {
   RegisterVehicleDto,
   SubmitDocumentSchema,
   SubmitDocumentDto,
+  DocumentUploadUrlRequestSchema,
+  DocumentUploadUrlRequestDto,
   AdminReviewVerificationSchema,
   UserRole,
 } from '@wasel/shared';
@@ -60,10 +62,19 @@ export class VerificationController {
   @ApiOperation({ summary: 'Get pre-signed upload URL for private verification document' })
   async getUploadUrl(
     @CurrentUser('userId') userId: string,
-    @Body() body: { mediaType?: string },
+    @Body(new ZodValidationPipe(DocumentUploadUrlRequestSchema)) dto: DocumentUploadUrlRequestDto,
   ) {
-    const mediaType = body.mediaType || 'image/jpeg';
-    return this.verificationService.getUploadUrl(userId, mediaType);
+    return this.verificationService.getUploadUrl(userId, dto.mediaType);
+  }
+
+  @Post('driver/vehicles/upload-url')
+  @Roles(UserRole.DRIVER, UserRole.ADMIN)
+  @ApiOperation({ summary: 'Get pre-signed upload URL for vehicle photo' })
+  async getVehiclePhotoUploadUrl(
+    @CurrentUser('userId') userId: string,
+    @Body(new ZodValidationPipe(DocumentUploadUrlRequestSchema)) dto: DocumentUploadUrlRequestDto,
+  ) {
+    return this.verificationService.getVehiclePhotoUploadUrl(userId, dto.mediaType);
   }
 
   @Post('driver/documents')
@@ -91,6 +102,16 @@ export class VerificationController {
   @ApiQuery({ name: 'status', required: false })
   async listVerifications(@Query('status') status?: string) {
     return this.verificationService.adminListVerifications(status);
+  }
+
+  @Get('admin/verifications/:id/document-url')
+  @Roles(UserRole.ADMIN, UserRole.SUPPORT)
+  @ApiOperation({ summary: 'Get temporary secure presigned URL to view verification document' })
+  async adminGetDocumentUrl(
+    @Param('id') id: string,
+    @CurrentUser('userId') adminId: string,
+  ) {
+    return this.verificationService.adminGetDocumentUrl(id, adminId);
   }
 
   @Post('admin/verifications/:id/approve')

@@ -136,8 +136,18 @@ export const OrderDetailsSchema = z.object({
 
 export type OrderDetailsDto = z.infer<typeof OrderDetailsSchema>;
 
+export const AllowedOrderMediaType = z.enum([
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+  'audio/webm',
+  'audio/mp4',
+  'audio/mpeg',
+]);
+export type AllowedOrderMediaType = z.infer<typeof AllowedOrderMediaType>;
+
 export const OrderUploadUrlRequestSchema = z.object({
-  mediaType: z.enum(['image/jpeg', 'image/png', 'audio/webm', 'audio/mp4', 'audio/ogg']),
+  mediaType: AllowedOrderMediaType.default('image/jpeg'),
   stopId: z.string().uuid().optional(),
 });
 
@@ -150,3 +160,4 @@ export const UploadUrlResponseSchema = z.object({
 });
 
 export type UploadUrlResponseDto = z.infer<typeof UploadUrlResponseSchema>;
+

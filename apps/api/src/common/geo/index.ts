@@ -297,3 +297,20 @@ function isPointInSinglePolygon(x: number, y: number, rings: number[][][]): bool
 
   return true;
 }
+
+/**
+ * Obfuscates geographic coordinates by snapping them to a coarse grid (~300m resolution)
+ * to preserve customer privacy before a binding agreement is established.
+ * ~300m corresponds to ~0.0027 degrees latitude (approx 111,132 meters / deg).
+ * At Cairo/Giza (lat ~30°), 0.0027 deg lat is ~300m, and 0.0031 deg lng is ~300m.
+ */
+export function obfuscatePoint(point: Point, resolutionMeters: number = 300): Point {
+  validatePoint(point);
+  const latGridDeg = resolutionMeters / 111132;
+  const lngGridDeg = resolutionMeters / (111320 * Math.cos((point.lat * Math.PI) / 180));
+  return {
+    lat: Number((Math.round(point.lat / latGridDeg) * latGridDeg).toFixed(6)),
+    lng: Number((Math.round(point.lng / lngGridDeg) * lngGridDeg).toFixed(6)),
+  };
+}
+

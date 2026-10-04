@@ -20,6 +20,13 @@ An Arabic-first (RTL) local logistics and delivery marketplace connecting reside
 - Active BullMQ repeatable task scheduler and standalone fallback worker (`apps/api/src/worker.ts`) with `/health` endpoint and zero secret exposure.
 - Periodic lifecycle expiration sweeps (`ExpiryService`) atomically transitioning expired orders, offers, and subscriptions.
 - Distributed Redis idempotency interceptor (`@Idempotent()`) with tenant/user isolation, payload mismatch rejection (422), and in-flight conflict locks (409).
+- Privacy and granular authorization layer eliminating IDOR across orders, offers, agreements, stops, media, and payment receipts.
+- Segregated `OrderRadarView` omitting customer PII and snapping coordinates to a ~300m grid for eligible drivers prior to agreement formation.
+- Private bucket storage for order voice notes and images with allowlist validation, derived extensions, per-order limits, and short-lived presigned URLs.
+- Driver verification document and vehicle photo upload verification with prefix isolation, HEAD storage checks, versioned server-side metadata encryption, and admin audit logging.
+- In-agreement messaging restricted to active agreement parties with configurable grace periods, length bounds, Redis rate limits, and admin audit trail.
+- Ratings validation restricted to completed agreements with integer bounds (1-5) and 409 Conflict mapping on duplicate ratings.
+- Admin user search with SQL wildcard escaping, minimum query length, cursor pagination, and PII audit tracking.
 
 ## Planned capabilities
 - Multi-stop cart creation directly from interactive neighborhood map pins.
@@ -27,6 +34,7 @@ An Arabic-first (RTL) local logistics and delivery marketplace connecting reside
 - Real-time order dispatch and driver tracking.
 
 ## Updated
+2026-10-04 — Phase 4: Privacy & Fine-Grained Authorization (S-08 private media & presigned URLs, S-09 verification doc encryption & prefix isolation, S-12 OrderRadarView & ~300m grid obfuscation, S-13 in-agreement messaging & rate limits, ratings completion checks, admin PII search sanitization, IDOR elimination).
 2026-10-04 — Phase 3: Transactional Integrity, Outbox, Expirations & Redis Idempotency (D-03 ACID transactions & row locking, D-04 transactional outbox & BullMQ/fallback worker, D-05 business rules & self-assignment guard, D-06 expiry sweeps, S-04 Redis idempotency).
 2026-10-04 — Phase 2: Database & Geo Hardening (D-01, D-02: unified migration/seed runners with checksums, PostGIS geography types and SRID 4326 axis order, polygon boundary containment, zero PGlite in production dist).
 2026-10-04 — Phase 1: Critical Security Hardening in apps/api (S-01 privilege escalation prevention, S-02 database fail-fast & bootstrap-admin script, S-03/S-05 environment validation & OTP security, S-06 session family rotation & token verification, S-10/S-11/S-14 leak prevention & CSP, S-16 admin lockout, S-17 OTP provider factory).

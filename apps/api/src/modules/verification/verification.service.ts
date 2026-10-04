@@ -2,6 +2,7 @@ import {
   Injectable,
   Inject,
   NotFoundException,
+  BadRequestException,
 } from '@nestjs/common';
 import { DatabaseService } from '../../database/database.service.js';
 import {
@@ -16,11 +17,13 @@ import {
 import { eq, desc, and } from 'drizzle-orm';
 import { AuditService } from '../audit/index.js';
 import { S3StorageService } from '../../common/storage/s3-storage.service.js';
+import { EncryptionService } from '../../common/crypto/index.js';
 import {
   DriverProfileCreateDto,
   RegisterVehicleDto,
   SubmitDocumentDto,
   AdminReviewVerificationDto,
+  ErrorCode,
 } from '@wasel/shared';
 import * as crypto from 'crypto';
 
@@ -30,6 +33,7 @@ export class VerificationService {
     @Inject(DatabaseService) private readonly dbService: DatabaseService,
     @Inject(AuditService) private readonly auditService: AuditService,
     @Inject(S3StorageService) private readonly storageService: S3StorageService,
+    @Inject(EncryptionService) private readonly encryptionService: EncryptionService,
   ) {}
 
   async upsertDriverProfile(userId: string, dto: DriverProfileCreateDto) {
@@ -99,6 +103,27 @@ export class VerificationService {
     // Ensure driver profile exists
     await this.upsertDriverProfile(userId, {});
 
+    if (dto.photoKey) {
+      if (!dto.photoKey.startsWith(`vehicles/${userId}/`) && !dto.photoKey.startsWith(`drivers/${userId}/`)) {
+        throw new BadRequestException('مسار صورة المركبة غير مصرح به');
+      }
+
+      const bucket = process.env.STORAGE_PRIVATE_BUCKET || 'wasel-identity-private';
+      const head = await this.storageService.headObject(bucket, dto.photoKey);
+      if (!head) {
+        throw new BadRequestException('صورة المركبة غير موجودة في التخزين المؤقت');
+      }
+
+      const allowedImageTypes = ['image/jpeg', 'image/png', 'image/webp'];
+      if (!allowedImageTypes.includes(head.contentType)) {
+        throw new BadRequestException('نوع صورة المركبة غير مسموح به');
+      }
+
+      if (head.contentLength > 5 * 1024 * 1024) {
+        throw new BadRequestException('حجم صورة المركبة يتجاوز الحد الأقصى المسموح (5 ميجابايت)');
+      }
+    }
+
     const [vehicle] = await this.dbService.db
       .insert(vehicles)
       .values({
@@ -113,10 +138,44 @@ export class VerificationService {
     return vehicle;
   }
 
-  async getUploadUrl(userId: string, mediaType: string) {
+  async getUploadUrl(userId: string, mediaType = 'image/jpeg') {
     const bucket = process.env.STORAGE_PRIVATE_BUCKET || 'wasel-identity-private';
-    const ext = mediaType.split('/')[1] || 'jpg';
+    const EXTENSION_MAP: Record<string, string> = {
+      'image/jpeg': 'jpg',
+      'image/png': 'png',
+      'image/webp': 'webp',
+      'application/pdf': 'pdf',
+    };
+
+    const ext = EXTENSION_MAP[mediaType];
+    if (!ext) {
+      throw new BadRequestException('نوع ملف المستند غير مسموح به');
+    }
+
     const fileKey = `drivers/${userId}/${crypto.randomUUID()}.${ext}`;
+
+    const res = await this.storageService.getPresignedUploadUrl(bucket, fileKey, mediaType, 900);
+    return {
+      uploadUrl: res.uploadUrl,
+      storageKey: res.fileKey,
+      expiresInSeconds: res.expiresInSeconds,
+    };
+  }
+
+  async getVehiclePhotoUploadUrl(userId: string, mediaType = 'image/jpeg') {
+    const bucket = process.env.STORAGE_PRIVATE_BUCKET || 'wasel-identity-private';
+    const EXTENSION_MAP: Record<string, string> = {
+      'image/jpeg': 'jpg',
+      'image/png': 'png',
+      'image/webp': 'webp',
+    };
+
+    const ext = EXTENSION_MAP[mediaType];
+    if (!ext) {
+      throw new BadRequestException('نوع صورة المركبة غير مسموح به');
+    }
+
+    const fileKey = `vehicles/${userId}/${crypto.randomUUID()}.${ext}`;
 
     const res = await this.storageService.getPresignedUploadUrl(bucket, fileKey, mediaType, 900);
     return {
@@ -129,6 +188,35 @@ export class VerificationService {
   async submitDocument(userId: string, dto: SubmitDocumentDto) {
     await this.upsertDriverProfile(userId, {});
 
+    if (!dto.storageKey.startsWith(`drivers/${userId}/`)) {
+      throw new BadRequestException('مسار تخزين المستند غير مصرح به للمستخدم');
+    }
+
+    const bucket = process.env.STORAGE_PRIVATE_BUCKET || 'wasel-identity-private';
+    const head = await this.storageService.headObject(bucket, dto.storageKey);
+    if (!head) {
+      throw new BadRequestException({
+        errorCode: ErrorCode.DOCUMENT_NOT_FOUND_IN_STORAGE,
+        message: 'ملف المستند غير موجود في التخزين، يرجى إعادة الرفع',
+      });
+    }
+
+    const allowedMimeTypes = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'];
+    if (!allowedMimeTypes.includes(head.contentType)) {
+      throw new BadRequestException('نوع ملف المستند غير مسموح به');
+    }
+
+    if (head.contentLength > 10 * 1024 * 1024) {
+      throw new BadRequestException('حجم ملف المستند يتجاوز الحد الأقصى المسموح (10 ميجابايت)');
+    }
+
+    // Encrypt sensitive metadata on server using active encryption key
+    let encryptedMetadata: string | null = null;
+    if (dto.metadata || dto.encryptedMetadata) {
+      const raw = dto.metadata ? JSON.stringify(dto.metadata) : dto.encryptedMetadata!;
+      encryptedMetadata = this.encryptionService.encrypt(raw);
+    }
+
     return await this.dbService.transaction(
       async (tx) => {
         const [doc] = await tx
@@ -137,7 +225,7 @@ export class VerificationService {
             driverId: userId,
             type: dto.type,
             storageKey: dto.storageKey,
-            encryptedMetadata: dto.encryptedMetadata,
+            encryptedMetadata,
             status: 'pending',
           })
           .returning();
@@ -160,6 +248,51 @@ export class VerificationService {
       },
       { actor: 'driver' },
     );
+  }
+
+  async adminGetDocumentUrl(docId: string, adminUserId: string) {
+    const [doc] = await this.dbService.db
+      .select()
+      .from(verificationDocuments)
+      .where(eq(verificationDocuments.id, docId))
+      .limit(1);
+
+    if (!doc) {
+      throw new NotFoundException('المستند غير موجود');
+    }
+
+    const bucket = process.env.STORAGE_PRIVATE_BUCKET || 'wasel-identity-private';
+    const downloadUrl = await this.storageService.getPresignedDownloadUrl(bucket, doc.storageKey, 300);
+
+    let decryptedMetadata: unknown = null;
+    if (doc.encryptedMetadata) {
+      try {
+        const raw = this.encryptionService.decrypt(doc.encryptedMetadata);
+        try {
+          decryptedMetadata = JSON.parse(raw);
+        } catch {
+          decryptedMetadata = raw;
+        }
+      } catch {
+        decryptedMetadata = null;
+      }
+    }
+
+    await this.auditService.log({
+      userId: adminUserId,
+      action: 'view_verification_document',
+      entityType: 'verification_documents',
+      entityId: docId,
+      afterState: { driverId: doc.driverId, type: doc.type },
+    });
+
+    return {
+      id: doc.id,
+      downloadUrl,
+      expiresInSeconds: 300,
+      type: doc.type,
+      metadata: decryptedMetadata,
+    };
   }
 
   async getVerificationStatus(userId: string) {

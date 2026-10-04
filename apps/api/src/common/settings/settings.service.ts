@@ -89,6 +89,27 @@ export class SettingsService {
     return Number(val) || 7;
   }
 
+  async getOrderMediaMaxCount(regionId?: string): Promise<number> {
+    const val = await this.get<number | string>('order_media_max_count', regionId, 10);
+    return Number(val) || 10;
+  }
+
+  async getMessagingGracePeriodMinutes(regionId?: string): Promise<number> {
+    const val = await this.get<number | string>('messaging_grace_period_minutes', regionId, 15);
+    return Number(val) || 15;
+  }
+
+  async getMessagingRateLimitPerMinute(): Promise<number> {
+    const val = await this.get<number | string>('messaging_rate_limit_per_minute', undefined, 20);
+    return Number(val) || 20;
+  }
+
+  async getLocationObfuscationResolutionMeters(regionId?: string): Promise<number> {
+    const val = await this.get<number | string>('location_obfuscation_resolution_meters', regionId, 300);
+    return Number(val) || 300;
+  }
+
+
   /**
    * Update or set a setting value
    */

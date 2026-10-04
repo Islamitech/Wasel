@@ -51,6 +51,10 @@ export interface TestContext {
     vehicle: any;
     token: string;
   }>;
+  createAdmin: (custom?: { phone?: string; fullName?: string }) => Promise<{
+    user: any;
+    token: string;
+  }>;
 }
 
 let cachedContext: TestContext | null = null;
@@ -126,6 +130,11 @@ export async function getTestContext(): Promise<TestContext> {
     [driverRole] = await dbService.db.insert(roles).values({ name: 'driver', description: 'Driver' }).returning();
   }
 
+  let [adminRole] = await dbService.db.select().from(roles).where(eq(roles.name, 'admin')).limit(1);
+  if (!adminRole) {
+    [adminRole] = await dbService.db.insert(roles).values({ name: 'admin', description: 'Admin' }).returning();
+  }
+
   const ensureRolePerms = async (roleId: string, permNames: string[]) => {
     for (const name of permNames) {
       let [p] = await dbService.db.select().from(permissions).where(eq(permissions.name, name)).limit(1);
@@ -161,6 +170,16 @@ export async function getTestContext(): Promise<TestContext> {
     'offers:read',
     'execution:update',
     'ratings:create',
+  ]);
+  await ensureRolePerms(adminRole!.id, [
+    'users:read',
+    'users:write',
+    'verification:read',
+    'verification:write',
+    'audit:read',
+    'orders:read',
+    'orders:update',
+    'orders:cancel',
   ]);
 
   // Ensure Vehicle Type
@@ -407,6 +426,53 @@ export async function getTestContext(): Promise<TestContext> {
     return { user: user!, driverProfile: driverProfile!, vehicle: vehicle!, token };
   };
 
+  const createAdmin = async (custom: { phone?: string; fullName?: string } = {}) => {
+    const phone = custom.phone || `+2000002${Math.floor(10000 + Math.random() * 90000)}`;
+    const [user] = await dbService.db
+      .insert(users)
+      .values({
+        phone,
+        fullName: custom.fullName || 'مدير تجريبي',
+        regionId: activeRegionId,
+        isActive: true,
+      })
+      .returning();
+
+    await dbService.db.insert(userRoles).values({
+      userId: user!.id,
+      roleId: adminRole!.id,
+    });
+
+    const adminSessionId = crypto.randomUUID();
+    const adminFamilyId = crypto.randomUUID();
+    await dbService.db.insert(sessions).values({
+      id: adminSessionId,
+      userId: user!.id,
+      familyId: adminFamilyId,
+      refreshTokenHash: 'mock-hash-admin',
+      expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+    });
+
+    const token = await jwtService.signAsync(
+      {
+        sub: user!.id,
+        sessionId: adminSessionId,
+        typ: 'access',
+        phone: user!.phone,
+        roles: ['admin'],
+      },
+      {
+        secret: process.env.JWT_ACCESS_SECRET || 'super_secret_jwt_access_key_min_32_chars_long',
+        expiresIn: '15m',
+        algorithm: 'HS256',
+        issuer: 'wasel-api',
+        audience: 'wasel-app',
+      },
+    );
+
+    return { user: user!, token };
+  };
+
   cachedContext = {
     app,
     dbService,
@@ -418,6 +484,7 @@ export async function getTestContext(): Promise<TestContext> {
     defaultVehicleTypeId: vType!.id,
     createCustomer,
     createDriver,
+    createAdmin,
   };
 
   return cachedContext;

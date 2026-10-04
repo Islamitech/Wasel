@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 export const SendMessageSchema = z
   .object({
-    content: z.string().optional(),
+    content: z.string().trim().min(1, 'محتوى الرسالة لا يمكن أن يكون فارغاً').max(2000, 'الحد الأقصى للرسالة 2000 حرف').optional(),
     mediaKey: z.string().optional(),
   })
   .refine((data) => !!data.content || !!data.mediaKey, {

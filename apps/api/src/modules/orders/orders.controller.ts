@@ -31,6 +31,8 @@ import {
   CancelOrderDto,
   OrderListQuerySchema,
   OrderListQueryDto,
+  OrderUploadUrlRequestSchema,
+  OrderUploadUrlRequestDto,
   UserRole,
 } from '@wasel/shared';
 
@@ -105,14 +107,26 @@ export class OrdersController {
     return this.ordersService.deleteStop(orderId, stopId, customerId);
   }
 
+  @Get(':id/quote')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Compute minimum guaranteed fare using SQL formula & billable visits' })
+  async quoteOrderGet(
+    @Param('id') orderId: string,
+    @CurrentUser('userId') userId: string,
+    @CurrentUser('roles') rolesList: string[],
+  ) {
+    return this.ordersService.quoteOrder(orderId, userId, rolesList || []);
+  }
+
   @Post(':id/quote')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Compute minimum guaranteed fare using SQL formula & billable visits' })
   async quoteOrder(
     @Param('id') orderId: string,
     @CurrentUser('userId') userId: string,
+    @CurrentUser('roles') rolesList: string[],
   ) {
-    return this.ordersService.quoteOrder(orderId, userId);
+    return this.ordersService.quoteOrder(orderId, userId, rolesList || []);
   }
 
   @Post(':id/publish')
@@ -146,9 +160,21 @@ export class OrdersController {
   async getMediaUploadUrl(
     @Param('id') orderId: string,
     @CurrentUser('userId') userId: string,
-    @Body() body: { mediaType?: string; stopId?: string },
+    @CurrentUser('roles') rolesList: string[],
+    @Body(new ZodValidationPipe(OrderUploadUrlRequestSchema)) dto: OrderUploadUrlRequestDto,
   ) {
-    const mediaType = body.mediaType || 'image/jpeg';
-    return this.ordersService.getMediaUploadUrl(orderId, userId, mediaType, body.stopId);
+    return this.ordersService.getMediaUploadUrl(orderId, userId, dto, rolesList || []);
+  }
+
+  @Get(':id/media/:mediaId/download-url')
+  @ApiOperation({ summary: 'Get pre-signed download URL for private order media' })
+  async getMediaDownloadUrl(
+    @Param('id') orderId: string,
+    @Param('mediaId') mediaId: string,
+    @CurrentUser('userId') userId: string,
+    @CurrentUser('roles') rolesList: string[],
+  ) {
+    return this.ordersService.getMediaDownloadUrl(orderId, mediaId, userId, rolesList || []);
   }
 }
+

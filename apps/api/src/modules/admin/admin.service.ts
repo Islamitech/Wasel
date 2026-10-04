@@ -1,4 +1,4 @@
-import { Injectable, Inject } from '@nestjs/common';
+import { Injectable, Inject, BadRequestException } from '@nestjs/common';
 import { DatabaseService } from '../../database/database.service.js';
 import {
   vehicleTypes,
@@ -15,7 +15,7 @@ import {
   disputes,
   users,
 } from '../../database/schema/index.js';
-import { eq, and, desc, asc, sql, ilike, or } from 'drizzle-orm';
+import { eq, and, desc, asc, sql, ilike, or, lt } from 'drizzle-orm';
 import { AuditService } from '../audit/index.js';
 import { maskPhone, maskEmail } from '../../common/utils/masking.js';
 import {
@@ -254,10 +254,16 @@ export class AdminService {
 
   // --- 4. User Search with Masked Data ---
 
-  async searchUsers(query: AdminUserSearchQueryDto) {
+  async searchUsers(query: AdminUserSearchQueryDto, adminId?: string) {
     const conditions: any[] = [];
     if (query.q) {
-      const pattern = `%${query.q.trim()}%`;
+      const trimmed = query.q.trim();
+      if (trimmed.length < 3) {
+        throw new BadRequestException('كلمة البحث يجب ألا تقل عن 3 أحرف');
+      }
+      // Escape special LIKE pattern characters: %, _, and \
+      const escaped = trimmed.replace(/[%_\\]/g, '\\$&');
+      const pattern = `%${escaped}%`;
       conditions.push(
         or(
           ilike(users.fullName, pattern),
@@ -267,21 +273,48 @@ export class AdminService {
       );
     }
 
+    if (query.cursor) {
+      const cursorDate = new Date(query.cursor);
+      if (!isNaN(cursorDate.getTime())) {
+        conditions.push(lt(users.createdAt, cursorDate));
+      }
+    }
+
     const limit = query.limit || 20;
     const userRecords = await this.dbService.db
       .select()
       .from(users)
       .where(conditions.length ? and(...conditions) : undefined)
       .orderBy(desc(users.createdAt))
-      .limit(limit);
+      .limit(limit + 1);
 
-    return userRecords.map((u) => ({
-      id: u.id,
-      fullName: u.fullName || 'مستخدم واصل',
-      phoneMasked: maskPhone(u.phone),
-      emailMasked: maskEmail(u.email),
-      isActive: u.isActive,
-      createdAt: u.createdAt.toISOString(),
-    }));
+    const hasNext = userRecords.length > limit;
+    const items = hasNext ? userRecords.slice(0, limit) : userRecords;
+    const nextCursor = hasNext ? items[items.length - 1]!.createdAt.toISOString() : null;
+
+    if (adminId) {
+      await this.auditService.log({
+        userId: adminId,
+        action: 'admin_user_search_pii',
+        entityType: 'users',
+        afterState: {
+          searchQuery: query.q ? `${query.q.slice(0, 3)}***` : null,
+          resultsCount: items.length,
+        },
+      });
+    }
+
+    return {
+      items: items.map((u) => ({
+        id: u.id,
+        fullName: u.fullName || 'مستخدم واصل',
+        phoneMasked: maskPhone(u.phone),
+        emailMasked: maskEmail(u.email),
+        isActive: u.isActive,
+        createdAt: u.createdAt.toISOString(),
+      })),
+      nextCursor,
+      hasNext,
+    };
   }
 }

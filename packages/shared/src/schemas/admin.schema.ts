@@ -37,7 +37,7 @@ export const AdminEscalationRuleSchema = z.object({
 export type AdminEscalationRuleDto = z.infer<typeof AdminEscalationRuleSchema>;
 
 export const AdminUserSearchQuerySchema = z.object({
-  q: z.string().optional(),
+  q: z.string().trim().min(3, 'كلمة البحث يجب ألا تقل عن 3 أحرف').optional(),
   role: z.string().optional(),
   cursor: z.string().optional(),
   limit: z.coerce.number().int().positive().max(100).default(20),

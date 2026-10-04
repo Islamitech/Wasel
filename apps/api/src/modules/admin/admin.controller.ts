@@ -212,9 +212,12 @@ export class AdminController {
   @Get('users')
   @ApiOperation({ summary: 'Search users with masked sensitive data' })
   @ApiQuery({ name: 'q', required: false })
+  @ApiQuery({ name: 'cursor', required: false })
+  @ApiQuery({ name: 'limit', required: false })
   async searchUsers(
     @Query(new ZodValidationPipe(AdminUserSearchQuerySchema)) query: AdminUserSearchQueryDto,
+    @CurrentUser('userId') adminId: string,
   ) {
-    return this.adminService.searchUsers(query);
+    return this.adminService.searchUsers(query, adminId);
   }
 }
