@@ -56,6 +56,17 @@ export default defineConfig({
       '@wasel/api-client': path.resolve(__dirname, '../../packages/api-client/src/index.ts'),
     },
   },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          vendor: ['react', 'react-dom'],
+          query: ['@tanstack/react-query'],
+          i18n: ['i18next', 'react-i18next'],
+        },
+      },
+    },
+  },
   server: {
     port: 5173,
   },

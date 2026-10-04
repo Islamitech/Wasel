@@ -81,7 +81,7 @@ export const PhoneAuthScreen: React.FC<PhoneAuthScreenProps> = ({
   };
 
   return (
-    <div
+    <main
       style={{
         minHeight: '100vh',
         display: 'flex',
@@ -122,7 +122,7 @@ export const PhoneAuthScreen: React.FC<PhoneAuthScreenProps> = ({
         <h1 style={{ fontSize: '1.75rem', fontWeight: 800, color: 'var(--color-ink)' }}>
           {t('appName')}
         </h1>
-        <p style={{ color: '#6b7280', marginTop: '6px', fontSize: '0.95rem' }}>
+        <p style={{ color: 'var(--color-text-muted, #374151)', marginTop: '6px', fontSize: '0.95rem' }}>
           {step === 'phone' ? t('auth.phoneSubtitle') : t('auth.otpSubtitle', { phone })}
         </p>
       </div>
@@ -139,7 +139,7 @@ export const PhoneAuthScreen: React.FC<PhoneAuthScreenProps> = ({
             autoFocus
           />
 
-          <div style={{ fontSize: '0.8rem', color: '#6b7280', marginTop: '-12px' }}>
+          <div style={{ fontSize: '0.85rem', color: 'var(--color-text-muted, #374151)', marginTop: '-12px' }}>
             💡 رقم موبايل مصري مكون من 11 رقماً (مثال: <code>01012345678</code> أو <code>01111445555</code>)
           </div>
 
@@ -160,19 +160,21 @@ export const PhoneAuthScreen: React.FC<PhoneAuthScreenProps> = ({
             autoFocus
           />
 
-          <div
-            style={{
-              fontSize: '0.85rem',
-              backgroundColor: '#eaf2ee',
-              color: '#12302b',
-              padding: '10px',
-              borderRadius: '10px',
-              textAlign: 'center',
-              fontWeight: 600,
-            }}
-          >
-            🔑 رمز التحقق لبيئة التطوير: <code>123456</code>
-          </div>
+          {import.meta.env.DEV && (
+            <div
+              style={{
+                fontSize: '0.85rem',
+                backgroundColor: '#eaf2ee',
+                color: '#12302b',
+                padding: '10px',
+                borderRadius: '10px',
+                textAlign: 'center',
+                fontWeight: 600,
+              }}
+            >
+              🔑 رمز التحقق لبيئة التطوير: <code>123456</code>
+            </div>
+          )}
 
           <Button type="submit" isLoading={loading}>
             {t('auth.verifyOtp')}
@@ -205,7 +207,7 @@ export const PhoneAuthScreen: React.FC<PhoneAuthScreenProps> = ({
               style={{
                 background: 'none',
                 border: 'none',
-                color: '#6b7280',
+                color: 'var(--color-text-muted, #374151)',
                 cursor: 'pointer',
                 fontFamily: 'inherit',
               }}
@@ -215,6 +217,6 @@ export const PhoneAuthScreen: React.FC<PhoneAuthScreenProps> = ({
           </div>
         </form>
       )}
-    </div>
+    </main>
   );
 };
