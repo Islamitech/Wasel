@@ -60,6 +60,27 @@ export async function getTestContext(): Promise<TestContext> {
     return cachedContext;
   }
 
+  if (!DatabaseService.getTestDb()) {
+    const connectionString =
+      process.env.DATABASE_URL || 'postgresql://wasel_user:wasel_secret@localhost:5432/wasel_db';
+    let postgresAccessible = false;
+    try {
+      const postgres = (await import('postgres')).default;
+      const client = postgres(connectionString, { max: 1, connect_timeout: 0.5, idle_timeout: 1 });
+      await client`SELECT 1`;
+      await client.end();
+      postgresAccessible = true;
+    } catch {
+      postgresAccessible = false;
+    }
+
+    if (!postgresAccessible) {
+      const { initEmbeddedDatabase } = await import('./embedded.js');
+      const embedded = await initEmbeddedDatabase();
+      DatabaseService.setTestDb(embedded.db);
+    }
+  }
+
   const moduleFixture: TestingModule = await Test.createTestingModule({
     imports: [AppModule],
   }).compile();
@@ -326,7 +347,7 @@ export async function getTestContext(): Promise<TestContext> {
         status: 'approved',
         verificationLevelId: custom.verificationLevelId !== undefined ? custom.verificationLevelId : vLevel!.id,
         isOnline: true,
-        lastLocation: '29.975,31.115',
+        lastLocation: { lat: 29.975, lng: 31.115 },
       })
       .returning();
 

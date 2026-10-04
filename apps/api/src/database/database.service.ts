@@ -1,22 +1,43 @@
 import { Injectable, OnModuleInit, OnModuleDestroy, Logger } from '@nestjs/common';
 import postgres from 'postgres';
 import { drizzle, PostgresJsDatabase } from 'drizzle-orm/postgres-js';
-import type { PGlite } from '@electric-sql/pglite';
 import * as schema from './schema/index.js';
-import { initEmbeddedDatabase } from './embedded.js';
 
 @Injectable()
 export class DatabaseService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(DatabaseService.name);
-  private client?: postgres.Sql;
-  private pglite?: PGlite;
+  public client?: postgres.Sql;
   public db!: PostgresJsDatabase<typeof schema>;
 
+  private static testDbInstance?: any;
+
+  /**
+   * Test runner hook: allows test harnesses (e.g. test-harness.ts) to inject
+   * a test database instance without bundling test dependencies in production.
+   */
+  public static setTestDb(db: any): void {
+    DatabaseService.testDbInstance = db;
+  }
+
+  public static getTestDb(): any {
+    return DatabaseService.testDbInstance;
+  }
+
   async onModuleInit() {
+    const isTest =
+      (process.env.NODE_ENV === 'test' || process.env.APP_ENV === 'test') &&
+      process.env.NODE_ENV !== 'production' &&
+      process.env.APP_ENV !== 'production';
+
+    // If a test runner has provided a pre-initialized test database, use it (TEST RUNNER ONLY, NEVER IN PRODUCTION)
+    if (isTest && DatabaseService.testDbInstance) {
+      this.db = DatabaseService.testDbInstance;
+      this.logger.log('✅ Injected test database active [TEST RUNNER ONLY]');
+      return;
+    }
+
     const connectionString =
       process.env.DATABASE_URL || 'postgresql://wasel_user:wasel_secret@localhost:5432/wasel_db';
-
-    const isTest = process.env.NODE_ENV === 'test' || process.env.APP_ENV === 'test';
     const maxRetries = isTest ? 1 : 3;
     let lastError: Error | null = null;
 
@@ -44,30 +65,15 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
       }
     }
 
-    // Fail-fast in production and development (NO PGlite fallback in runtime)
-    if (!isTest) {
-      this.logger.error(`❌ Fatal: Unable to connect to external PostgreSQL after ${maxRetries} attempts: ${lastError?.message}`);
-      throw new Error(`Database connection failed: ${lastError?.message || 'Unable to reach PostgreSQL'}`);
-    }
-
-    // In isolated test runner environment ONLY:
-    this.logger.warn(
-      `⚠️ External PostgreSQL not available in test runner (${lastError?.message || 'connection failed'}). Using embedded test PGlite...`,
-    );
-    const embedded = await initEmbeddedDatabase();
-    this.pglite = embedded.pglite;
-    this.db = embedded.db as any;
-    this.logger.log('✅ Embedded test PostgreSQL (PGlite) active [TEST RUNNER ONLY]');
+    // Fail-fast in production, staging, and development (NO fallback in runtime)
+    this.logger.error(`❌ Fatal: Unable to connect to external PostgreSQL after ${maxRetries} attempts: ${lastError?.message}`);
+    throw new Error(`Database connection failed: ${lastError?.message || 'Unable to reach PostgreSQL'}`);
   }
 
   async onModuleDestroy() {
     if (this.client) {
       await this.client.end();
       this.logger.log('Database connection pool closed gracefully');
-    }
-    if (this.pglite) {
-      await this.pglite.close();
-      this.logger.log('Embedded database closed gracefully');
     }
   }
 }

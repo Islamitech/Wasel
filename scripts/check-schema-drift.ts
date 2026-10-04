@@ -5,7 +5,8 @@
  *
  * Description:
  * Validates that Drizzle ORM schema definitions and Supabase SQL migrations
- * are 100% synchronized. Fails CI (exit code 1) if any table or column drifts.
+ * are 100% synchronized, including strict PostGIS geography column type parity.
+ * Fails CI (exit code 1) if any table, column, or geography type drifts.
  *
  * Run:
  *   pnpm db:check-drift
@@ -15,16 +16,28 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
+interface ColumnInfo {
+  name: string;
+  isGeography: boolean;
+}
+
 interface DriftReport {
   missingTablesInDrizzle: string[];
   missingTablesInSql: string[];
   missingColumnsInDrizzle: { table: string; column: string }[];
+  geographyTypeMismatches: {
+    table: string;
+    column: string;
+    sqlType: string;
+    drizzleType: string;
+  }[];
   matchedTablesCount: number;
   totalColumnsChecked: number;
+  geographyColumnsChecked: number;
 }
 
-export function extractSqlTablesAndColumns(migrationsDir: string): Map<string, Set<string>> {
-  const tableMap = new Map<string, Set<string>>();
+export function extractSqlTablesAndColumns(migrationsDir: string): Map<string, Map<string, ColumnInfo>> {
+  const tableMap = new Map<string, Map<string, ColumnInfo>>();
 
   const files = fs
     .readdirSync(migrationsDir)
@@ -39,16 +52,16 @@ export function extractSqlTablesAndColumns(migrationsDir: string): Map<string, S
     let match: RegExpExecArray | null;
 
     while ((match = tableRegex.exec(content)) !== null) {
-      const tableName = match[1].toLowerCase();
-      const body = match[2];
+      const tableName = match[1]!.toLowerCase();
+      const body = match[2]!;
 
       if (!tableMap.has(tableName)) {
-        tableMap.set(tableName, new Set());
+        tableMap.set(tableName, new Map());
       }
 
-      const columnSet = tableMap.get(tableName)!;
+      const columnMap = tableMap.get(tableName)!;
 
-      // Extract column names: first token of lines that are not CONSTRAINT / PRIMARY KEY / CHECK / UNIQUE
+      // Extract column names and types
       const lines = body.split('\n');
       for (const rawLine of lines) {
         const line = rawLine.trim();
@@ -64,10 +77,16 @@ export function extractSqlTablesAndColumns(migrationsDir: string): Map<string, S
           continue;
         }
 
-        const colMatch = line.match(/^([a-zA-Z0-9_]+)\s+/);
+        const colMatch = line.match(/^([a-zA-Z0-9_]+)\s+([a-zA-Z0-9_().,\s]+?)(?:,|$)/);
         if (colMatch) {
-          const colName = colMatch[1].toLowerCase();
-          columnSet.add(colName);
+          const colName = colMatch[1]!.toLowerCase();
+          const colTypeStr = colMatch[2]!.toLowerCase();
+          const isGeography = colTypeStr.includes('geography');
+
+          columnMap.set(colName, {
+            name: colName,
+            isGeography,
+          });
         }
       }
     }
@@ -76,8 +95,8 @@ export function extractSqlTablesAndColumns(migrationsDir: string): Map<string, S
   return tableMap;
 }
 
-export function extractDrizzleTablesAndColumns(): Map<string, Set<string>> {
-  const tableMap = new Map<string, Set<string>>();
+export function extractDrizzleTablesAndColumns(): Map<string, Map<string, ColumnInfo>> {
+  const tableMap = new Map<string, Map<string, ColumnInfo>>();
 
   // Load compiled schema or ts-source
   const schemaPath = path.resolve(__dirname, '../apps/api/dist/database/schema/index.js');
@@ -99,15 +118,22 @@ export function extractDrizzleTablesAndColumns(): Map<string, Set<string>> {
 
       const tableName = String(tbl[nameSym]).toLowerCase();
       if (!tableMap.has(tableName)) {
-        tableMap.set(tableName, new Set());
+        tableMap.set(tableName, new Map());
       }
 
-      const columnSet = tableMap.get(tableName)!;
+      const columnMap = tableMap.get(tableName)!;
       const columns = tbl[colSym] || {};
 
       for (const col of Object.values(columns) as any[]) {
         if (col && col.name) {
-          columnSet.add(String(col.name).toLowerCase());
+          const colName = String(col.name).toLowerCase();
+          const sqlType = typeof col.getSQLType === 'function' ? String(col.getSQLType()).toLowerCase() : '';
+          const isGeography = sqlType.includes('geography') || col.dataType === 'custom' && sqlType.includes('geography');
+
+          columnMap.set(colName, {
+            name: colName,
+            isGeography,
+          });
         }
       }
     }
@@ -118,7 +144,7 @@ export function extractDrizzleTablesAndColumns(): Map<string, Set<string>> {
 
 export function runDriftCheck(): boolean {
   console.log('='.repeat(78));
-  console.log(' WASEL CI DRIFT CHECK: Drizzle ORM Schema vs SQL Migrations');
+  console.log(' WASEL CI DRIFT CHECK: Drizzle ORM Schema vs SQL Migrations & PostGIS Parity');
   console.log('='.repeat(78));
 
   const migrationsDir = path.resolve(__dirname, '../supabase/migrations');
@@ -129,11 +155,13 @@ export function runDriftCheck(): boolean {
     missingTablesInDrizzle: [],
     missingTablesInSql: [],
     missingColumnsInDrizzle: [],
+    geographyTypeMismatches: [],
     matchedTablesCount: 0,
     totalColumnsChecked: 0,
+    geographyColumnsChecked: 0,
   };
 
-  // 1. Check SQL tables exist in Drizzle
+  // 1. Check SQL tables and column types exist in Drizzle
   for (const [tableName, sqlCols] of sqlTables.entries()) {
     if (!drizzleTables.has(tableName)) {
       report.missingTablesInDrizzle.push(tableName);
@@ -143,10 +171,27 @@ export function runDriftCheck(): boolean {
     report.matchedTablesCount++;
     const drizzleCols = drizzleTables.get(tableName)!;
 
-    for (const col of sqlCols) {
+    for (const [colName, sqlCol] of sqlCols.entries()) {
       report.totalColumnsChecked++;
-      if (!drizzleCols.has(col)) {
-        report.missingColumnsInDrizzle.push({ table: tableName, column: col });
+      const drizzleCol = drizzleCols.get(colName);
+
+      if (!drizzleCol) {
+        report.missingColumnsInDrizzle.push({ table: tableName, column: colName });
+        continue;
+      }
+
+      if (sqlCol.isGeography) {
+        report.geographyColumnsChecked++;
+      }
+
+      // Check Geography type parity
+      if (sqlCol.isGeography !== drizzleCol.isGeography) {
+        report.geographyTypeMismatches.push({
+          table: tableName,
+          column: colName,
+          sqlType: sqlCol.isGeography ? 'geography(Point, 4326)' : 'non-geography',
+          drizzleType: drizzleCol.isGeography ? 'geographyPoint' : 'non-geography',
+        });
       }
     }
   }
@@ -179,10 +224,18 @@ export function runDriftCheck(): boolean {
     report.missingColumnsInDrizzle.forEach((c) => console.error(`   - app.${c.table}.${c.column}`));
   }
 
+  if (report.geographyTypeMismatches.length > 0) {
+    hasErrors = true;
+    console.error(' [ERROR] PostGIS Geography Type Mismatch between SQL migrations and Drizzle ORM:');
+    report.geographyTypeMismatches.forEach((m) =>
+      console.error(`   - app.${m.table}.${m.column}: SQL is [${m.sqlType}], but Drizzle is [${m.drizzleType}]`)
+    );
+  }
+
   console.log('-'.repeat(78));
   if (!hasErrors) {
     console.log(
-      ` [PASS] 0 drift detected! All ${report.matchedTablesCount} tables and ${report.totalColumnsChecked} columns are in perfect sync.`
+      ` [PASS] 0 drift detected! All ${report.matchedTablesCount} tables, ${report.totalColumnsChecked} columns, and ${report.geographyColumnsChecked} PostGIS geography columns are in 100% type parity.`
     );
     return true;
   } else {

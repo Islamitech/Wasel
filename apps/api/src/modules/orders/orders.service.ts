@@ -20,8 +20,10 @@ import {
   settings,
   customerProfiles,
   users,
+  regions,
 } from '../../database/schema/index.js';
 import { eq, and, desc, asc, sql } from 'drizzle-orm';
+import { normalizePoint, isPointInsidePolygon } from '../../common/geo/index.js';
 import { EventBusService } from '../../common/events/event-bus.service.js';
 import { S3StorageService } from '../../common/storage/s3-storage.service.js';
 import { maskPhone } from '../../common/utils/masking.js';
@@ -72,12 +74,37 @@ export class OrdersService {
       regionId = user?.regionId || undefined;
     }
 
-    if (!regionId) {
-      const [defaultRegion] = await this.dbService.db
-        .select({ id: users.regionId })
-        .from(users)
+    let activeRegion: any = null;
+    if (regionId) {
+      [activeRegion] = await this.dbService.db
+        .select()
+        .from(regions)
+        .where(eq(regions.id, regionId))
         .limit(1);
-      regionId = defaultRegion?.id || undefined;
+    }
+    if (!activeRegion) {
+      [activeRegion] = await this.dbService.db
+        .select()
+        .from(regions)
+        .where(eq(regions.isActive, true))
+        .limit(1);
+      regionId = activeRegion?.id || undefined;
+    }
+
+    if (!activeRegion) {
+      throw new BadRequestException('لا توجد منطقة تشغيلية مفعلة حالياً');
+    }
+
+    // Validate customer location coordinates and operating region coverage
+    const customerPoint = normalizePoint(dto.customerLocation);
+    if (activeRegion.polygonGeojson) {
+      const isInside = isPointInsidePolygon(customerPoint, activeRegion.polygonGeojson);
+      if (!isInside) {
+        throw new BadRequestException({
+          errorCode: ErrorCode.LOCATION_OUTSIDE_REGION,
+          message: 'موقع الطلب خارج النطاق الجغرافي للمنطقة المحددة',
+        });
+      }
     }
 
     // Ensure customer profile exists
@@ -91,8 +118,6 @@ export class OrdersService {
       await this.dbService.db.insert(customerProfiles).values({ id: customerId, regionId });
     }
 
-    const customerLocStr = `${dto.customerLocation.latitude},${dto.customerLocation.longitude}`;
-
     // 3. Insert order
     const [newOrder] = await this.dbService.db
       .insert(orders)
@@ -103,7 +128,7 @@ export class OrdersService {
         valueTierId: dto.valueTierId,
         loadSizeId: dto.loadSizeId,
         waitMode: dto.waitMode || 'wait',
-        customerLocation: customerLocStr,
+        customerLocation: customerPoint,
         minFareMinor: 0,
       })
       .returning();
@@ -111,13 +136,13 @@ export class OrdersService {
     // 4. Insert stops sequentially
     for (let i = 0; i < dto.stops.length; i++) {
       const s = dto.stops[i]!;
-      const stopLocStr = `${s.location.latitude},${s.location.longitude}`;
+      const stopPoint = normalizePoint(s.location);
       await this.dbService.db.insert(stops).values({
         orderId: newOrder!.id,
         seq: s.seq || i + 1,
         actionId: s.actionId,
         placeId: s.placeId,
-        location: stopLocStr,
+        location: stopPoint,
         description: s.description,
         contactPhone: s.contactPhone,
         notes: s.notes,
@@ -177,7 +202,7 @@ export class OrdersService {
     }
 
     const nextSeq = dto.seq || existingStops.length + 1;
-    const stopLocStr = `${dto.location.latitude},${dto.location.longitude}`;
+    const stopPoint = normalizePoint(dto.location);
 
     const [newStop] = await this.dbService.db
       .insert(stops)
@@ -186,7 +211,7 @@ export class OrdersService {
         seq: nextSeq,
         actionId: dto.actionId,
         placeId: dto.placeId,
-        location: stopLocStr,
+        location: stopPoint,
         description: dto.description,
         contactPhone: dto.contactPhone,
         notes: dto.notes,
@@ -467,13 +492,7 @@ export class OrdersService {
     const hasActiveAgreement = agreement && agreement.status === 'active';
     const canSeeFullPhone = isCustomer || isAdmin || (isDriver && hasActiveAgreement);
 
-    let customerLat = 29.975;
-    let customerLng = 31.115;
-    if (typeof order.customerLocation === 'string' && order.customerLocation.includes(',')) {
-      const parts = order.customerLocation.split(',');
-      customerLat = parseFloat(parts[0] || '29.975');
-      customerLng = parseFloat(parts[1] || '31.115');
-    }
+    const custLoc = normalizePoint(order.customerLocation);
 
     return {
       id: order.id,
@@ -486,25 +505,29 @@ export class OrdersService {
       valueTierId: order.valueTierId,
       loadSizeId: order.loadSizeId,
       waitMode: order.waitMode,
-      customerLocation: { latitude: customerLat, longitude: customerLng },
+      customerLocation: {
+        latitude: custLoc.lat,
+        longitude: custLoc.lng,
+        lat: custLoc.lat,
+        lng: custLoc.lng,
+      },
       minFareMinor: order.minFareMinor,
       pricingSnapshot: order.pricingSnapshot,
       publishedAt: order.publishedAt?.toISOString() || null,
       expiresAt: order.expiresAt?.toISOString() || null,
       stops: orderStops.map((s) => {
-        let sLat = 29.975;
-        let sLng = 31.115;
-        if (typeof s.location === 'string' && s.location.includes(',')) {
-          const parts = s.location.split(',');
-          sLat = parseFloat(parts[0] || '29.975');
-          sLng = parseFloat(parts[1] || '31.115');
-        }
+        const stopLoc = normalizePoint(s.location);
         return {
           id: s.id,
           seq: s.seq,
           actionId: s.actionId,
           placeId: s.placeId,
-          location: { latitude: sLat, longitude: sLng },
+          location: {
+            latitude: stopLoc.lat,
+            longitude: stopLoc.lng,
+            lat: stopLoc.lat,
+            lng: stopLoc.lng,
+          },
           description: s.description,
           notes: s.notes,
           expectedDurationMinutes: s.expectedDurationMinutes,

@@ -4,6 +4,7 @@ import { appSchema } from './common.js';
 import { users } from './users.js';
 import { orders } from './orders.js';
 import { customerProfiles, driverProfiles } from './verification.js';
+import { geographyPoint } from '../../common/geo/index.js';
 
 export const conversations = appSchema.table('conversations', {
   id: uuid('id').default(sql`extensions.gen_random_uuid()`).primaryKey(),
@@ -85,7 +86,7 @@ export const orderTrackingPoints = appSchema.table('order_tracking_points', {
   id: uuid('id').default(sql`extensions.gen_random_uuid()`).primaryKey(),
   orderId: uuid('order_id').notNull().references(() => orders.id, { onDelete: 'cascade' }),
   driverId: uuid('driver_id').notNull().references(() => driverProfiles.id, { onDelete: 'cascade' }),
-  location: text('location').notNull(),
+  location: geographyPoint('location').notNull(),
   speedKmh: numeric('speed_kmh', { precision: 5, scale: 2 }),
   heading: numeric('heading', { precision: 5, scale: 2 }),
   recordedAt: timestamp('recorded_at', { withTimezone: true }).defaultNow().notNull(),

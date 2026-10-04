@@ -2,12 +2,12 @@ import { PGlite } from '@electric-sql/pglite';
 import { drizzle } from 'drizzle-orm/pglite';
 import * as path from 'path';
 import * as fs from 'fs';
-import * as schema from './schema/index.js';
+import * as schema from '../src/database/schema/index.js';
 
 export async function initEmbeddedDatabase(dataDir?: string) {
   const pglite = dataDir ? new PGlite(dataDir) : new PGlite();
 
-  // 1. Setup extensions schema & spatial polyfills for standalone execution
+  // 1. Setup extensions schema & spatial polyfills for standalone test execution
   await pglite.exec(`
     CREATE SCHEMA IF NOT EXISTS extensions;
     CREATE SCHEMA IF NOT EXISTS app;
@@ -34,7 +34,7 @@ export async function initEmbeddedDatabase(dataDir?: string) {
     RETURNS text AS $$ SELECT geom; $$ LANGUAGE sql IMMUTABLE;
 
     CREATE OR REPLACE FUNCTION extensions.ST_MakePoint(lon float8, lat float8)
-    RETURNS text AS $$ SELECT lon::text || ',' || lat::text; $$ LANGUAGE sql IMMUTABLE;
+    RETURNS text AS $$ SELECT 'SRID=4326;POINT(' || lon::text || ' ' || lat::text || ')'; $$ LANGUAGE sql IMMUTABLE;
 
     CREATE OR REPLACE FUNCTION extensions.ST_AsText(geom text)
     RETURNS text AS $$ SELECT geom; $$ LANGUAGE sql IMMUTABLE;
@@ -42,8 +42,8 @@ export async function initEmbeddedDatabase(dataDir?: string) {
     CREATE OR REPLACE FUNCTION extensions.ST_Distance(geom1 text, geom2 text)
     RETURNS float8 AS $$
     DECLARE
-      p1 text[] := string_to_array(geom1, ',');
-      p2 text[] := string_to_array(geom2, ',');
+      p1 text[] := regexp_matches(geom1, 'POINT\\s*\\(\\s*([-\\d.]+)\\s+([-\\d.]+)\\s*\\)');
+      p2 text[] := regexp_matches(geom2, 'POINT\\s*\\(\\s*([-\\d.]+)\\s+([-\\d.]+)\\s*\\)');
       lon1 float8 := p1[1]::float8;
       lat1 float8 := p1[2]::float8;
       lon2 float8 := p2[1]::float8;
@@ -65,14 +65,14 @@ export async function initEmbeddedDatabase(dataDir?: string) {
     $$ LANGUAGE sql IMMUTABLE;
   `);
 
-  // 2. Find and apply all 10 SQL migrations sequentially
+  // 2. Find and apply all SQL migrations sequentially
   const possiblePaths = [
     path.resolve(process.cwd(), 'supabase/migrations'),
     path.resolve(process.cwd(), '../../supabase/migrations'),
-    path.resolve(__dirname, '../../../../supabase/migrations'),
+    path.resolve(__dirname, '../../../supabase/migrations'),
   ];
 
-  let migrationsDir = possiblePaths.find((p) => fs.existsSync(p));
+  const migrationsDir = possiblePaths.find((p) => fs.existsSync(p));
   if (migrationsDir) {
     const migrationFiles = fs
       .readdirSync(migrationsDir)
@@ -97,7 +97,7 @@ export async function initEmbeddedDatabase(dataDir?: string) {
     const possibleSeedPaths = [
       path.resolve(process.cwd(), 'supabase/seed.sql'),
       path.resolve(process.cwd(), '../../supabase/seed.sql'),
-      path.resolve(__dirname, '../../../../supabase/seed.sql'),
+      path.resolve(__dirname, '../../../supabase/seed.sql'),
     ];
     const seedPath = possibleSeedPaths.find((p) => fs.existsSync(p));
     if (seedPath) {
@@ -107,6 +107,5 @@ export async function initEmbeddedDatabase(dataDir?: string) {
   }
 
   const db = drizzle(pglite, { schema });
-
   return { pglite, db };
 }

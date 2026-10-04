@@ -4,6 +4,7 @@ import { appSchema } from './common.js';
 import { regions } from './regions.js';
 import { users } from './users.js';
 import { vehicleTypes } from './verification.js';
+import { geographyPoint } from '../../common/geo/index.js';
 
 export const valueTiers = appSchema.table('value_tiers', {
   id: uuid('id').default(sql`extensions.gen_random_uuid()`).primaryKey(),
@@ -49,7 +50,7 @@ export const places = appSchema.table('places', {
   externalRef: varchar('external_ref', { length: 255 }),
   name: varchar('name', { length: 255 }).notNull(),
   category: varchar('category', { length: 64 }),
-  location: text('location').notNull(),
+  location: geographyPoint('location').notNull(),
   status: varchar('status', { length: 32 }).default('active').notNull(),
   createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),

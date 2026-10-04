@@ -12,6 +12,8 @@
     "test:db": "pnpm --filter @wasel/api test data_model.spec.ts",
     "test:db:fast": "pnpm --filter @wasel/api exec tsx ../../supabase/tests/run-db-tests.ts",
     "test:db:real": "pnpm --filter @wasel/api exec tsx ../../scripts/test-real-postgis.ts",
+    "db:migrate": "pnpm --filter @wasel/api db:migrate",
+    "db:seed": "pnpm --filter @wasel/api db:seed",
     "db:check-drift": "pnpm --filter @wasel/api exec tsx ../../scripts/check-schema-drift.ts",
     "verify:rls": "pnpm --filter @wasel/api exec tsx ../../scripts/verify-rls.ts",
     "test:e2e": "turbo run test:e2e",

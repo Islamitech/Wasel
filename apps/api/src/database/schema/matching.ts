@@ -4,6 +4,7 @@ import { appSchema } from './common.js';
 import { regions } from './regions.js';
 import { orders } from './orders.js';
 import { driverProfiles } from './verification.js';
+import { geographyPoint } from '../../common/geo/index.js';
 
 export const escalationRules = appSchema.table('escalation_rules', {
   id: uuid('id').default(sql`extensions.gen_random_uuid()`).primaryKey(),
@@ -41,6 +42,14 @@ export const dispatchCandidates = appSchema.table('dispatch_candidates', {
   response: varchar('response', { length: 32 }).default('pending').notNull(),
 });
 
+export const driverLocations = appSchema.table('driver_locations', {
+  id: uuid('id').default(sql`extensions.gen_random_uuid()`).primaryKey(),
+  driverId: uuid('driver_id').notNull().references(() => driverProfiles.id, { onDelete: 'cascade' }),
+  location: geographyPoint('location').notNull(),
+  recordedAt: timestamp('recorded_at', { withTimezone: true }).defaultNow().notNull(),
+});
+
 export type EscalationRule = typeof escalationRules.$inferSelect;
 export type DispatchRun = typeof dispatchRuns.$inferSelect;
 export type DispatchCandidate = typeof dispatchCandidates.$inferSelect;
+export type DriverLocation = typeof driverLocations.$inferSelect;

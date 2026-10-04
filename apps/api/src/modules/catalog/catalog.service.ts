@@ -11,6 +11,7 @@ import {
 import { asc, eq, ilike, and } from 'drizzle-orm';
 import * as crypto from 'crypto';
 import { SearchPlacesQueryDto, SuggestPlaceDto } from '@wasel/shared';
+import { normalizePoint } from '../../common/geo/index.js';
 
 @Injectable()
 export class CatalogService {
@@ -62,19 +63,15 @@ export class CatalogService {
       .limit(limit);
 
     return results.map((p) => {
-      let lat = 29.975;
-      let lng = 31.115;
-      if (typeof p.location === 'string' && p.location.includes(',')) {
-        const parts = p.location.split(',');
-        lat = parseFloat(parts[0] || '29.975');
-        lng = parseFloat(parts[1] || '31.115');
-      }
+      const loc = normalizePoint(p.location);
       return {
         id: p.id,
         nameAr: p.name,
         category: p.category,
-        latitude: lat,
-        longitude: lng,
+        latitude: loc.lat,
+        longitude: loc.lng,
+        lat: loc.lat,
+        lng: loc.lng,
         isVerified: true,
         status: p.status,
       };
@@ -82,14 +79,14 @@ export class CatalogService {
   }
 
   async suggestPlace(dto: SuggestPlaceDto, userId?: string) {
-    const locationString = `${dto.latitude},${dto.longitude}`;
+    const point = normalizePoint({ lat: dto.latitude, lng: dto.longitude });
     const [created] = await this.dbService.db
       .insert(places)
       .values({
         name: dto.nameAr,
         category: dto.category || 'other',
         source: 'user_suggested',
-        location: locationString,
+        location: point,
         status: 'pending',
         createdBy: userId,
         regionId: dto.regionId,

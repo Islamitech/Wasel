@@ -38,11 +38,17 @@ This spins up:
 
 ### 5. Run Database Migrations & Seed Data
 ```bash
-# Run SQL migrations & enable PostGIS
-pnpm --filter @wasel/api db:migrate
+# Run SQL migrations (supabase/migrations/*.sql with checksum verification)
+pnpm db:migrate
 
-# Seed base region (Hadayek al-Ahram), roles, permissions, admin user & catalog
-pnpm --filter @wasel/api db:seed
+# Inspect migration status
+pnpm db:migrate --status
+
+# Seed canonical reference data (regions, vehicle types, value tiers, pricing rules)
+pnpm db:seed
+
+# Optional: seed development test data (50 test captains in Hadayek al-Ahram)
+pnpm db:seed --dev
 ```
 
 ### 6. Start Development Servers

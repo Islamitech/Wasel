@@ -70,10 +70,17 @@ jobs:
       - name: Typecheck
         run: pnpm typecheck
 
-      - name: Verify Schema Drift (Drizzle vs Migrations)
+      - name: Verify Schema Drift (Drizzle vs Migrations & Geography Parity)
         run: pnpm db:check-drift
 
-      - name: Run Tests (Fast In-Memory Suite)
+      - name: Apply Database Migrations & Seeds
+        env:
+          DATABASE_URL: postgresql://wasel_user:wasel_secret@localhost:5432/wasel_db
+        run: |
+          pnpm db:migrate
+          pnpm db:seed --dev
+
+      - name: Run Tests
         env:
           DATABASE_URL: postgresql://wasel_user:wasel_secret@localhost:5432/wasel_db
           REDIS_URL: redis://localhost:6379

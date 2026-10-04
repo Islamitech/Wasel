@@ -81,3 +81,26 @@ The API rejects any cross-origin requests from origins not explicitly included i
 3. **Dedicated Service Secrets**:
    - The NestJS API connects to PostgreSQL using the direct connection string (`DATABASE_URL`).
    - The Supabase service-role key is never exposed to frontend clients.
+
+---
+
+## 5. Database Migrations & Reference Seeding
+
+Database migrations are managed via a single source of truth under `supabase/migrations/*.sql` executed by the unified runner:
+
+```bash
+# Apply pending migrations
+pnpm db:migrate
+
+# Check status of applied migrations and checksums
+pnpm db:migrate --status
+
+# Rollback a specific migration
+pnpm db:migrate --down 20261004000012_driver_locations.sql
+
+# Seed production reference data (idempotent, 0 users, 0 passwords)
+pnpm db:seed
+```
+
+> [!CAUTION]
+> Development seed (`pnpm db:seed --dev`) contains synthetic test accounts and is strictly rejected if `APP_ENV=production`.

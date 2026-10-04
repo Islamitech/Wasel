@@ -5,6 +5,7 @@ import { regions } from './regions.js';
 import { users } from './users.js';
 import { customerProfiles, driverProfiles } from './verification.js';
 import { valueTiers, loadSizes, serviceActions, places } from './catalog.js';
+import { geographyPoint } from '../../common/geo/index.js';
 
 export const orders = appSchema.table('orders', {
   id: uuid('id').default(sql`extensions.gen_random_uuid()`).primaryKey(),
@@ -14,7 +15,7 @@ export const orders = appSchema.table('orders', {
   valueTierId: uuid('value_tier_id').references(() => valueTiers.id, { onDelete: 'restrict' }),
   loadSizeId: uuid('load_size_id').references(() => loadSizes.id, { onDelete: 'restrict' }),
   waitMode: varchar('wait_mode', { length: 16 }).default('wait').notNull(),
-  customerLocation: text('customer_location').notNull(),
+  customerLocation: geographyPoint('customer_location').notNull(),
   minFareMinor: bigint('min_fare_minor', { mode: 'number' }).default(0).notNull(),
   pricingSnapshot: jsonb('pricing_snapshot'),
   publishedAt: timestamp('published_at', { withTimezone: true }),
@@ -33,7 +34,7 @@ export const stops = appSchema.table('stops', {
   seq: integer('seq').notNull(),
   actionId: uuid('action_id').notNull().references(() => serviceActions.id, { onDelete: 'restrict' }),
   placeId: uuid('place_id').references(() => places.id, { onDelete: 'set null' }),
-  location: text('location').notNull(),
+  location: geographyPoint('location').notNull(),
   description: text('description'),
   contactPhone: varchar('contact_phone', { length: 20 }),
   notes: text('notes'),

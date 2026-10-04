@@ -20,6 +20,7 @@ import {
   users,
 } from '../../database/schema/index.js';
 import { eq, and, desc, asc, sql } from 'drizzle-orm';
+import { normalizePoint } from '../../common/geo/index.js';
 import { SubscriptionsFacade } from '../subscriptions/index.js';
 import { VerificationFacade } from '../verification/index.js';
 import { EventBusService } from '../../common/events/event-bus.service.js';
@@ -546,13 +547,13 @@ export class AgreementsService {
 
         let nextSeq = existingStops.length + 1;
         for (const s of amendment.addedStops as any[]) {
-          const locStr = `${s.location.latitude},${s.location.longitude}`;
+          const stopPoint = normalizePoint(s.location);
           await this.dbService.db.insert(stops).values({
             orderId: agreement.orderId,
             seq: nextSeq++,
             actionId: s.actionId,
             placeId: s.placeId,
-            location: locStr,
+            location: stopPoint,
             description: s.description,
             notes: s.notes,
             expectedDurationMinutes: s.expectedDurationMinutes || 0,
@@ -947,13 +948,13 @@ export class AgreementsService {
     }
 
     const latest = dto.points[dto.points.length - 1]!;
-    const locStr = `${latest.latitude},${latest.longitude}`;
+    const latestPoint = normalizePoint({ lat: latest.latitude, lng: latest.longitude });
 
     // Update driver profile last location
     await this.dbService.db
       .update(driverProfiles)
       .set({
-        lastLocation: locStr,
+        lastLocation: latestPoint,
         lastSeenAt: new Date(),
         updatedAt: new Date(),
       })

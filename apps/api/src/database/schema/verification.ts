@@ -3,6 +3,7 @@ import { sql } from 'drizzle-orm';
 import { appSchema } from './common.js';
 import { users } from './users.js';
 import { regions } from './regions.js';
+import { geographyPoint } from '../../common/geo/index.js';
 
 export const verificationLevels = appSchema.table('verification_levels', {
   id: uuid('id').default(sql`extensions.gen_random_uuid()`).primaryKey(),
@@ -48,7 +49,7 @@ export const driverProfiles = appSchema.table('driver_profiles', {
   ratingCount: integer('rating_count').default(0).notNull(),
   completedCount: integer('completed_count').default(0).notNull(),
   isOnline: boolean('is_online').default(false).notNull(),
-  lastLocation: text('last_location'),
+  lastLocation: geographyPoint('last_location'),
   lastSeenAt: timestamp('last_seen_at', { withTimezone: true }),
   acceptanceRate: numeric('acceptance_rate', { precision: 5, scale: 2 }).default('100.00').notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
