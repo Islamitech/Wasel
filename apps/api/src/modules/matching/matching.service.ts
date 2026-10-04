@@ -1,6 +1,7 @@
 import {
   Injectable,
   Inject,
+  Optional,
   ForbiddenException,
   NotFoundException,
 } from '@nestjs/common';
@@ -20,6 +21,7 @@ import { SubscriptionsFacade } from '../subscriptions/index.js';
 import { VerificationFacade } from '../verification/index.js';
 import { SettingsService } from '../../common/settings/settings.service.js';
 import { RedisService } from '../../common/redis/redis.service.js';
+import { MetricsService } from '../metrics/index.js';
 import { Point, validatePoint, toGeography } from '../../common/geo/index.js';
 import {
   buildPaginatedResponse,
@@ -57,6 +59,7 @@ export class MatchingService {
     @Inject(VerificationFacade) private readonly verificationFacade: VerificationFacade,
     @Inject(SettingsService) private readonly settingsService: SettingsService,
     @Inject(RedisService) private readonly redisService: RedisService,
+    @Optional() @Inject(MetricsService) private readonly metricsService?: MetricsService,
   ) {}
 
   /**
@@ -68,6 +71,7 @@ export class MatchingService {
     driverId: string,
     options: NearbyOrdersOptions = {},
   ): Promise<PaginatedResult<NearbyOrderCard>> {
+    const start = process.hrtime.bigint();
     // 1. Subscription check
     const isSubscribed = await this.subsFacade.isDriverSubscribed(driverId);
     if (!isSubscribed) {
@@ -245,6 +249,9 @@ export class MatchingService {
       firstStopSummary: r.firstStopSummary || 'المحطة الأولى',
       createdAt: new Date(r.createdAt).toISOString(),
     }));
+
+    const durationSeconds = Number(process.hrtime.bigint() - start) / 1e9;
+    this.metricsService?.recordMatchingDuration('getNearbyOrders', durationSeconds);
 
     return buildPaginatedResponse(formattedCards, limit, (item) => item.createdAt);
   }

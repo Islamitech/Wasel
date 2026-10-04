@@ -7,6 +7,62 @@ on:
     branches: [main, develop]
 
 jobs:
+  gitleaks:
+    name: Gitleaks Security Audit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout full repository history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Run Gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_CONFIG: .gitleaks.toml
+
+  audit:
+    name: Production Dependencies Audit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Setup pnpm
+        run: npm install -g pnpm@12.9.1
+      - name: Run pnpm audit (production high+)
+        run: pnpm audit --prod --audit-level high
+
+  dependency-review:
+    name: Dependency Review
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Dependency Review
+        uses: actions/dependency-review-action@v4
+
+  codeql:
+    name: CodeQL Security Analysis
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      actions: read
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: javascript-typescript
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+
   build-and-test:
     name: Lint, Typecheck, Test & Build
     runs-on: ubuntu-latest
@@ -73,14 +129,14 @@ jobs:
       - name: Verify Schema Drift (Drizzle vs Migrations & Geography Parity)
         run: pnpm db:check-drift
 
-      - name: Apply Database Migrations & Seeds
+      - name: Apply Database Migrations & Seeds on PostGIS Service
         env:
           DATABASE_URL: postgresql://wasel_user:wasel_secret@localhost:5432/wasel_db
         run: |
           pnpm db:migrate
           pnpm db:seed --dev
 
-      - name: Run Tests
+      - name: Run Tests (All Workspaces with Strict Env)
         env:
           DATABASE_URL: postgresql://wasel_user:wasel_secret@localhost:5432/wasel_db
           REDIS_URL: redis://localhost:6379
@@ -88,18 +144,50 @@ jobs:
           JWT_REFRESH_SECRET: super_secret_jwt_refresh_key_min_32_chars_long
           ENCRYPTION_KEY: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
           OTP_PROVIDER: dev
+          METRICS_TOKEN: test_metrics_token_secret_123456
         run: pnpm test
 
       - name: Build Monorepo Artifacts
+        env:
+          VITE_API_URL: http://localhost:3000
         run: pnpm build
 
-      - name: Customer PWA Unit & E2E Tests
+      - name: Install Playwright Browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Start API Service for E2E
+        env:
+          PORT: 3000
+          NODE_ENV: test
+          APP_ENV: staging
+          DATABASE_URL: postgresql://wasel_user:wasel_secret@localhost:5432/wasel_db
+          REDIS_URL: redis://localhost:6379
+          JWT_ACCESS_SECRET: super_secret_jwt_access_key_min_32_chars_long
+          JWT_REFRESH_SECRET: super_secret_jwt_refresh_key_min_32_chars_long
+          ENCRYPTION_KEY: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+          OTP_PROVIDER: dev
+          METRICS_TOKEN: test_metrics_token_secret_123456
         run: |
-          pnpm --filter @wasel/customer-web test || echo "Customer PWA test script pending Phase 3 wiring"
+          node apps/api/dist/main.js &
+          for i in $(seq 1 30); do
+            if curl -s http://localhost:3000/health | grep -q "ok"; then
+              echo "API server is ready for E2E testing."
+              break
+            fi
+            echo "Waiting for API server to become ready ($i/30)..."
+            sleep 1
+          done
+
+      - name: Playwright E2E Tests (Customer & Driver PWAs)
+        run: |
+          pnpm --filter @wasel/customer-web test:e2e
+          pnpm --filter @wasel/driver-web test:e2e
 
       - name: Customer PWA Lighthouse CI Threshold Verification
-        run: |
-          npx @lhci/cli autorun --config=apps/customer-web/lighthouserc.json || echo "LHCI executed against defined thresholds"
+        run: npx @lhci/cli autorun --config=apps/customer-web/lighthouserc.json
+
+      - name: Driver PWA Lighthouse CI Threshold Verification
+        run: npx @lhci/cli autorun --config=apps/driver-web/lighthouserc.json
 
   db-real:
     name: Real PostGIS Engine & Spatial GiST Verification

@@ -45,25 +45,40 @@ For each application deployed on Vercel:
 
 | Variable | Description | Example |
 |---|---|---|
-| `VITE_API_URL` | Base URL of the NestJS API | `https://api.wasel.app/v1` |
+| `VITE_API_URL` | Base Origin URL of the NestJS API (without `/v1`, as the client SDK appends `/v1`) | `https://api.wasel.app` (Production) / `https://api-staging.wasel.app` (Staging) |
 
 ---
 
-## 3. Backend API CORS Configuration
+## 3. Backend API CORS & Environment Configuration
 
 The NestJS API enforces strict Origin-header validation based on environment configuration.
 
 In `apps/api/src/config/env.validation.ts`:
+- **`APP_ENV`**: Environment name (`development`, `staging`, `production`, `test`).
 - **`CORS_ORIGINS`**: Comma-separated list of allowed origins.
+- **`DB_SSL`**: Enforced `true` or `require` in `production`.
+- **`METRICS_TOKEN`**: Secret Bearer token protecting the `/metrics` endpoint.
 
 ### Production Example:
 ```env
+APP_ENV=production
+NODE_ENV=production
 CORS_ORIGINS=https://customer.wasel.app,https://driver.wasel.app,https://admin.wasel.app
+DATABASE_URL=postgresql://wasel_app:secret@db.wasel.internal:5432/wasel_prod?sslmode=require
+DB_SSL=require
+REDIS_URL=redis://default:secret@redis.wasel.internal:6379
+METRICS_TOKEN=prod_metrics_bearer_token_super_secret_64_hex
 ```
 
 ### Staging Example:
 ```env
-CORS_ORIGINS=https://customer-staging.vercel.app,https://driver-staging.vercel.app,https://admin-staging.vercel.app
+APP_ENV=staging
+NODE_ENV=production
+CORS_ORIGINS=https://customer-staging.wasel.app,https://driver-staging.wasel.app,https://admin-staging.wasel.app
+DATABASE_URL=postgresql://wasel_app:secret@db-staging.wasel.internal:5432/wasel_staging?sslmode=require
+DB_SSL=require
+REDIS_URL=redis://default:secret@redis-staging.wasel.internal:6379
+METRICS_TOKEN=staging_metrics_bearer_token_super_secret_64_hex
 ```
 
 The API rejects any cross-origin requests from origins not explicitly included in `CORS_ORIGINS`.
@@ -104,3 +119,54 @@ pnpm db:seed
 
 > [!CAUTION]
 > Development seed (`pnpm db:seed --dev`) contains synthetic test accounts and is strictly rejected if `APP_ENV=production`.
+
+---
+
+## 6. Containerization & Docker Compose
+
+Wasel backend API and worker processes are packaged via a hardened multi-stage Dockerfile (`Dockerfile`) based on `node:22-alpine`:
+- **Security**: Runs under an unprivileged non-root user (`wasel`, UID 10001).
+- **Pruning**: Uses `pnpm deploy --prod` to include strictly necessary production dependencies.
+- **Healthchecks**: Built-in `HEALTHCHECK` instructions querying `/health` on both API and worker containers.
+
+### Building Docker Images:
+```bash
+# Build the API image
+docker build --target api -t wasel-api:latest .
+
+# Build the Worker image
+docker build --target worker -t wasel-worker:latest .
+```
+
+### Production Docker Compose Stack:
+Refer to `docker-compose.prod.example.yml` for complete service orchestration:
+```bash
+# Start Postgres, Redis, run pre-deployment migrations, then start API and worker
+docker compose -f docker-compose.prod.example.yml up -d
+```
+
+---
+
+## 7. Continuous Deployment Pipeline
+
+Deployments are automated through GitHub Actions (`.github/workflows/deploy.yml`):
+1. **Pre-deployment Migrations**:
+   - `pnpm db:migrate` runs as an isolated pre-deployment job before container rollout.
+   - Any migration failure halts the pipeline immediately, preventing corrupted deploys.
+2. **Staging Environment**:
+   - Automatically deployed whenever changes are merged into the `main` branch.
+   - Verifies container health against staging endpoints.
+3. **Production Environment**:
+   - Gated behind GitHub Environment protection with required peer approvals.
+   - Executes production migrations followed by zero-downtime rolling container updates.
+
+---
+
+## 8. Health, Readiness & Metrics Endpoints
+
+| Endpoint | Method | Auth | Purpose |
+|---|---|---|---|
+| `/health` | `GET` | Public | Liveness probe (HTTP 200 `{ status: "ok" }`). |
+| `/ready` | `GET` | Public | Readiness probe (verifies Postgres connection, Redis ping, latest applied migration). |
+| `/metrics` | `GET` | Bearer (`METRICS_TOKEN`) | Prometheus metrics scrape endpoint (lag, 5xx rate, OTP, pool saturation, matching p95). |
+

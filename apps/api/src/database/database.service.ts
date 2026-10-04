@@ -39,6 +39,17 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
     return DatabaseService.testDbInstance;
   }
 
+  private activeQueryCount = 0;
+  private poolMax = 20;
+
+  public getPoolMetrics(): { active: number; max: number; saturation: number } {
+    return {
+      active: this.activeQueryCount,
+      max: this.poolMax,
+      saturation: this.poolMax > 0 ? Math.min(1, this.activeQueryCount / this.poolMax) : 0,
+    };
+  }
+
   /**
    * Execute a database operation within an ACID transaction.
    * Sets app.actor_role locally for RLS and status transition triggers.
@@ -49,31 +60,36 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
     options?: TransactionOptions,
   ): Promise<T> {
     const afterCommitHooks: Array<() => void | Promise<void>> = [];
+    this.activeQueryCount++;
 
-    const result = await this.db.transaction(async (tx) => {
-      const customTx = tx as DatabaseTransaction;
-      if (options?.actor) {
-        await customTx.execute(sql`SELECT set_config('app.actor_role', ${options.actor}, true)`);
+    try {
+      const result = await this.db.transaction(async (tx) => {
+        const customTx = tx as DatabaseTransaction;
+        if (options?.actor) {
+          await customTx.execute(sql`SELECT set_config('app.actor_role', ${options.actor}, true)`);
+        }
+
+        customTx._afterCommit = (cb: () => void | Promise<void>) => {
+          afterCommitHooks.push(cb);
+        };
+
+        return await fn(customTx);
+      });
+
+      for (const hook of afterCommitHooks) {
+        try {
+          await hook();
+        } catch (err: unknown) {
+          this.logger.error(
+            `Error executing afterCommit hook: ${err instanceof Error ? err.message : String(err)}`,
+          );
+        }
       }
 
-      customTx._afterCommit = (cb: () => void | Promise<void>) => {
-        afterCommitHooks.push(cb);
-      };
-
-      return await fn(customTx);
-    });
-
-    for (const hook of afterCommitHooks) {
-      try {
-        await hook();
-      } catch (err: unknown) {
-        this.logger.error(
-          `Error executing afterCommit hook: ${err instanceof Error ? err.message : String(err)}`,
-        );
-      }
+      return result;
+    } finally {
+      this.activeQueryCount = Math.max(0, this.activeQueryCount - 1);
     }
-
-    return result;
   }
 
   async onModuleInit() {
@@ -94,32 +110,65 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
     const maxRetries = isTest ? 1 : 3;
     let lastError: Error | null = null;
 
+    this.poolMax = parseInt(process.env.DB_POOL_MAX || '20', 10);
+    const idleTimeout = parseInt(process.env.DB_IDLE_TIMEOUT || '30', 10);
+    const connectTimeout = isTest ? 0.5 : parseInt(process.env.DB_CONNECT_TIMEOUT || '5', 10);
+    const statementTimeout = parseInt(process.env.DB_STATEMENT_TIMEOUT || '10000', 10);
+    const prepare = process.env.DB_PREPARE !== 'false';
+    const isProduction =
+      process.env.APP_ENV === 'production' || process.env.NODE_ENV === 'production';
+    const ssl =
+      process.env.DB_SSL === 'require' ||
+      process.env.DB_SSL === 'true' ||
+      (isProduction &&
+        process.env.DB_SSL !== 'false' &&
+        !connectionString.includes('localhost') &&
+        !connectionString.includes('127.0.0.1'))
+        ? 'require'
+        : false;
+
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
         const testClient = postgres(connectionString, {
           max: 1,
-          connect_timeout: isTest ? 0.5 : 2,
+          connect_timeout: connectTimeout,
           idle_timeout: 1,
+          ssl,
         });
         await testClient`SELECT 1`;
         await testClient.end();
 
-        this.client = postgres(connectionString, { max: 20 });
+        this.client = postgres(connectionString, {
+          max: this.poolMax,
+          idle_timeout: idleTimeout,
+          connect_timeout: connectTimeout,
+          prepare,
+          ssl,
+          connection: {
+            statement_timeout: statementTimeout,
+          },
+        });
         this.db = drizzle(this.client, { schema });
-        this.logger.log('✅ Connected to external PostgreSQL (Production PostGIS Engine: Real PostGIS + GiST indexes active)');
+        this.logger.log(
+          `✅ Connected to PostgreSQL (pool max: ${this.poolMax}, idle: ${idleTimeout}s, prepare: ${prepare}, ssl: ${Boolean(ssl)})`,
+        );
         return;
       } catch (err: any) {
         lastError = err;
         if (attempt < maxRetries) {
           const delayMs = Math.pow(2, attempt) * 250;
-          this.logger.warn(`PostgreSQL connection attempt ${attempt} failed (${err.message}). Retrying in ${delayMs}ms...`);
+          this.logger.warn(
+            `PostgreSQL connection attempt ${attempt} failed (${err.message}). Retrying in ${delayMs}ms...`,
+          );
           await new Promise((res) => setTimeout(res, delayMs));
         }
       }
     }
 
     // Fail-fast in production, staging, and development (NO fallback in runtime)
-    this.logger.error(`❌ Fatal: Unable to connect to external PostgreSQL after ${maxRetries} attempts: ${lastError?.message}`);
+    this.logger.error(
+      `❌ Fatal: Unable to connect to external PostgreSQL after ${maxRetries} attempts: ${lastError?.message}`,
+    );
     throw new Error(`Database connection failed: ${lastError?.message || 'Unable to reach PostgreSQL'}`);
   }
 

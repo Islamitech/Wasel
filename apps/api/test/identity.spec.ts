@@ -130,14 +130,18 @@ describe('Identity Module Integration Tests (End-to-End)', () => {
       .useValue({
         onModuleInit: () => {},
         onModuleDestroy: () => {},
-        db: createMockQueryBuilder(),
+        getPoolMetrics: () => ({ active: 0, max: 20, saturation: 0 }),
+        db: {
+          ...createMockQueryBuilder(),
+          execute: async () => [{ name: '20261004000013_integrity_outbox_transitions.sql', applied_at: new Date() }],
+        },
       })
       .overrideProvider(OTP_PROVIDER_TOKEN)
       .useClass(DevOtpProvider)
       .compile();
 
     app = moduleFixture.createNestApplication();
-    app.setGlobalPrefix('v1', { exclude: ['health', 'ready', 'docs'] });
+    app.setGlobalPrefix('v1', { exclude: ['health', 'ready', 'docs', 'metrics'] });
     await app.init();
   });
 
@@ -154,10 +158,19 @@ describe('Identity Module Integration Tests (End-to-End)', () => {
       expect(res.body.status).toBe('ok');
     });
 
-    it('GET /ready returns 200 ready', async () => {
+    it('GET /ready returns 200 ready with DB, Redis and migrations info', async () => {
       const res = await request(app.getHttpServer()).get('/ready');
       expect(res.status).toBe(200);
       expect(res.body.status).toBe('ready');
+      expect(res.body.database).toBe('connected');
+      expect(res.body.redis).toBe('connected');
+      expect(res.body.latestMigration).toBeDefined();
+    });
+
+    it('GET /metrics returns 200 with Prometheus metrics', async () => {
+      const res = await request(app.getHttpServer()).get('/metrics');
+      expect(res.status).toBe(200);
+      expect(res.text).toContain('wasel_');
     });
   });
 

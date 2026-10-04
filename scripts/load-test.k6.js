@@ -58,10 +58,10 @@ export default function () {
   const nearbyRes = http.get(`${BASE_URL}/driver/orders/nearby`, params);
   check(nearbyRes, {
     'nearby orders status is 200': (r) => r.status === 200,
-    'nearby orders response is an array': (r) => {
+    'nearby orders response is valid list': (r) => {
       try {
         const body = JSON.parse(r.body);
-        return Array.isArray(body);
+        return Array.isArray(body) || (body && Array.isArray(body.items));
       } catch {
         return false;
       }

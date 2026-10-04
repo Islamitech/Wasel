@@ -57,6 +57,15 @@ export const EnvSchema = z
       .string()
       .transform((val) => val === 'true')
       .default('false'),
+    DB_POOL_MAX: z.coerce.number().min(1).default(20),
+    DB_IDLE_TIMEOUT: z.coerce.number().min(1).default(30),
+    DB_CONNECT_TIMEOUT: z.coerce.number().min(1).default(5),
+    DB_STATEMENT_TIMEOUT: z.coerce.number().min(100).default(10000),
+    DB_PREPARE: z.enum(['true', 'false']).default('true'),
+    DB_SSL: z.enum(['true', 'false', 'require', 'prefer', 'disable']).optional(),
+    SENTRY_DSN: z.string().optional(),
+    LOG_LEVEL: z.enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal']).default('info'),
+    METRICS_TOKEN: z.string().optional(),
   })
   .superRefine((data, ctx) => {
     const isProdOrStaging = data.APP_ENV === 'production' || data.APP_ENV === 'staging';
@@ -162,6 +171,17 @@ export const EnvSchema = z
           path: ['REDIS_URL'],
           message: 'Localhost REDIS_URL not permitted in production/staging',
         });
+      }
+
+      // 8. Mandatory TLS for PostgreSQL in production
+      if (data.APP_ENV === 'production' || data.NODE_ENV === 'production') {
+        if (data.DB_SSL === 'disable' || data.DB_SSL === 'false') {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['DB_SSL'],
+            message: 'TLS is mandatory for PostgreSQL in production! DB_SSL cannot be false or disable.',
+          });
+        }
       }
     }
   });

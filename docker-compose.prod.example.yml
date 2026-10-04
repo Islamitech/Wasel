@@ -1,0 +1,161 @@
+# ==============================================================================
+# Wasel Production / Staging Docker Compose Configuration (Example)
+# Demonstrates production topology: PostGIS, Redis, Modular API, BullMQ Worker
+# ==============================================================================
+
+services:
+  # ----------------------------------------------------------------------------
+  # 1. PostgreSQL 16 + PostGIS 3.4 Database
+  # ----------------------------------------------------------------------------
+  postgres:
+    image: postgis/postgis:16-3.4-alpine
+    container_name: wasel-prod-postgres
+    restart: always
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-wasel_db}
+      POSTGRES_USER: ${POSTGRES_USER:-wasel_prod_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ChangeThisToAStrongProductionSecret}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-wasel_prod_user} -d ${POSTGRES_DB:-wasel_db}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ----------------------------------------------------------------------------
+  # 2. Redis 7 High-Speed Cache & BullMQ Store
+  # ----------------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    container_name: wasel-prod-redis
+    restart: always
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-ChangeThisToAStrongRedisSecret}
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-ChangeThisToAStrongRedisSecret}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ----------------------------------------------------------------------------
+  # 3. Database Migration Runner (Executes before API & Worker start)
+  # ----------------------------------------------------------------------------
+  migration:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: api
+    container_name: wasel-prod-migration
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      APP_ENV: ${APP_ENV:-staging} # 'staging' or 'production'
+      DATABASE_URL: postgresql://${POSTGRES_USER:-wasel_prod_user}:${POSTGRES_PASSWORD:-ChangeThisToAStrongProductionSecret}@postgres:5432/${POSTGRES_DB:-wasel_db}?sslmode=prefer
+    command: ["node", "-e", "import('./dist/database/migrate.js').then(m => m.runMigrations()).catch(e => { console.error(e); process.exit(1); })"]
+
+  # ----------------------------------------------------------------------------
+  # 4. Wasel Modular Monolith API
+  # ----------------------------------------------------------------------------
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: api
+    container_name: wasel-prod-api
+    restart: always
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migration:
+        condition: service_completed_successfully
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: production
+      APP_ENV: ${APP_ENV:-staging} # 'staging' or 'production'
+      PORT: 3000
+      API_URL: ${API_URL:-https://api.wasel.app}
+      CORS_ORIGINS: ${CORS_ORIGINS:-https://customer.wasel.app,https://driver.wasel.app,https://admin.wasel.app}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-wasel_prod_user}:${POSTGRES_PASSWORD:-ChangeThisToAStrongProductionSecret}@postgres:5432/${POSTGRES_DB:-wasel_db}?sslmode=prefer
+      REDIS_URL: redis://:${REDIS_PASSWORD:-ChangeThisToAStrongRedisSecret}@redis:6379
+      DB_POOL_MAX: 25
+      DB_IDLE_TIMEOUT: 30
+      DB_CONNECT_TIMEOUT: 5
+      DB_STATEMENT_TIMEOUT: 10000
+      DB_PREPARE: "true"
+      DB_SSL: "prefer"
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-ReplaceWith64HexCharactersOrAtLeast32CharsRandomSecret1}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-ReplaceWith64HexCharactersOrAtLeast32CharsRandomSecret2}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef}
+      ENCRYPTION_KEY_ID: v1
+      OTP_PROVIDER: ${OTP_PROVIDER:-dual}
+      MAP_PROVIDER: ${MAP_PROVIDER:-google}
+      PUSH_PROVIDER: ${PUSH_PROVIDER:-webpush}
+      LOG_LEVEL: info
+      METRICS_TOKEN: ${METRICS_TOKEN:-GenerateASecretTokenForPrometheusScraping}
+      SENTRY_DSN: ${SENTRY_DSN:-}
+      TRUST_PROXY: "true"
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:3000/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  # ----------------------------------------------------------------------------
+  # 5. BullMQ Background Worker & Transactional Outbox Dispatcher
+  # ----------------------------------------------------------------------------
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: worker
+    container_name: wasel-prod-worker
+    restart: always
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migration:
+        condition: service_completed_successfully
+    ports:
+      - "3001:3001"
+    environment:
+      NODE_ENV: production
+      APP_ENV: ${APP_ENV:-staging}
+      WORKER_PORT: 3001
+      DATABASE_URL: postgresql://${POSTGRES_USER:-wasel_prod_user}:${POSTGRES_PASSWORD:-ChangeThisToAStrongProductionSecret}@postgres:5432/${POSTGRES_DB:-wasel_db}?sslmode=prefer
+      REDIS_URL: redis://:${REDIS_PASSWORD:-ChangeThisToAStrongRedisSecret}@redis:6379
+      DB_POOL_MAX: 15
+      DB_SSL: "prefer"
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-ReplaceWith64HexCharactersOrAtLeast32CharsRandomSecret1}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-ReplaceWith64HexCharactersOrAtLeast32CharsRandomSecret2}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef}
+      ENCRYPTION_KEY_ID: v1
+      OTP_PROVIDER: ${OTP_PROVIDER:-dual}
+      MAP_PROVIDER: ${MAP_PROVIDER:-google}
+      PUSH_PROVIDER: ${PUSH_PROVIDER:-webpush}
+      LOG_LEVEL: info
+      SENTRY_DSN: ${SENTRY_DSN:-}
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:3001/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+volumes:
+  postgres_data:
+  redis_data:

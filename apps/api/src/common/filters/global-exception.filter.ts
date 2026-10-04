@@ -7,6 +7,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import { Request, Response } from 'express';
+import * as Sentry from '@sentry/node';
 import { ErrorCode } from '@wasel/shared';
 
 @Catch()
@@ -117,6 +118,15 @@ export class GlobalExceptionFilter implements ExceptionFilter {
         `Unhandled Internal Exception [${requestId}]: ${exception.message}`,
         exception.stack,
       );
+      try {
+        if (process.env.SENTRY_DSN) {
+          Sentry.captureException(exception, {
+            extra: { requestId, method: request.method, url: request.url },
+          });
+        }
+      } catch {
+        // Ignore Sentry dispatch failures
+      }
     }
 
     const payload = {

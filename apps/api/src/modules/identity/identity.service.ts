@@ -1,10 +1,12 @@
 import {
   Injectable,
   Inject,
+  Optional,
   BadRequestException,
   UnauthorizedException,
   NotFoundException,
 } from '@nestjs/common';
+import { MetricsService } from '../metrics/index.js';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcryptjs';
 import * as crypto from 'crypto';
@@ -51,6 +53,7 @@ export class IdentityService {
     @Inject(TokenService) private readonly tokenService: TokenService,
     @Inject(AuditService) private readonly auditService: AuditService,
     @Inject(OTP_PROVIDER_TOKEN) private readonly otpProvider: IOtpProvider,
+    @Optional() @Inject(MetricsService) private readonly metricsService?: MetricsService,
   ) {}
 
   /**
@@ -118,12 +121,18 @@ export class IdentityService {
       .returning();
 
     // 5. Send OTP via configured provider
-    await this.otpProvider.sendOtp({
-      phone,
-      code,
-      expiresInMinutes: expiryMinutes,
-      ip,
-    });
+    try {
+      await this.otpProvider.sendOtp({
+        phone,
+        code,
+        expiresInMinutes: expiryMinutes,
+        ip,
+      });
+      this.metricsService?.recordOtpDelivery('success', this.otpProvider.providerName);
+    } catch (err) {
+      this.metricsService?.recordOtpDelivery('failure', this.otpProvider.providerName);
+      throw err;
+    }
 
     // 6. Record domain event
     await this.eventBus.publish('otp.requested', phone, {

@@ -6,6 +6,7 @@ import pinoHttp from 'pino-http';
 import * as dotenv from 'dotenv';
 import * as crypto from 'crypto';
 import express from 'express';
+import * as Sentry from '@sentry/node';
 import { AppModule } from './app.module.js';
 import { validateEnv } from './config/env.validation.js';
 
@@ -15,6 +16,32 @@ async function bootstrap() {
   // 1. Fail fast if environment is invalid
   const envConfig = validateEnv(process.env);
   const logger = new Logger('Bootstrap');
+
+  // Initialize Sentry if SENTRY_DSN is configured
+  if (envConfig.SENTRY_DSN) {
+    Sentry.init({
+      dsn: envConfig.SENTRY_DSN,
+      environment: envConfig.APP_ENV,
+      tracesSampleRate: envConfig.APP_ENV === 'production' ? 0.2 : 1.0,
+      beforeSend(event) {
+        if (event.request?.headers) {
+          delete event.request.headers['authorization'];
+          delete event.request.headers['cookie'];
+          delete event.request.headers['x-metrics-token'];
+        }
+        if (event.request?.data && typeof event.request.data === 'object') {
+          const sensitiveKeys = ['phone', 'nationalId', 'password', 'code', 'token', 'refreshToken', 'secret'];
+          for (const key of sensitiveKeys) {
+            if (key in event.request.data) {
+              (event.request.data as any)[key] = '[REDACTED]';
+            }
+          }
+        }
+        return event;
+      },
+    });
+    logger.log('🛡️ Sentry error monitoring initialized with PII sanitization');
+  }
 
   const app = await NestFactory.create(AppModule, {
     bufferLogs: true,
@@ -32,21 +59,30 @@ async function bootstrap() {
   app.use(express.json({ limit: '1mb' }));
   app.use(express.urlencoded({ extended: true, limit: '1mb' }));
 
-  // 2. Structured logging (Pino) with request IDs and secret redaction
+  // 2. Structured logging (Pino) with request IDs, configurable level, and secret redaction
+  const isProduction = envConfig.NODE_ENV === 'production' || envConfig.APP_ENV === 'production';
+  const logLevel = envConfig.LOG_LEVEL || (isProduction ? 'info' : 'debug');
+
   const pino = (pinoHttp as any)({
+    level: logLevel,
     redact: {
       paths: [
         'req.headers.authorization',
         'req.headers.cookie',
+        'req.headers["x-metrics-token"]',
         'req.body.password',
         'req.body.token',
         'req.body.refreshToken',
         'req.body.code',
+        'req.body.otp',
+        'req.body.nationalId',
+        'req.body.secret',
       ],
       censor: '[REDACTED]',
     },
     autoLogging: {
-      ignore: (req: any) => req.url === '/health' || req.url === '/ready',
+      ignore: (req: any) =>
+        req.url === '/health' || req.url === '/ready' || req.url === '/metrics',
     },
     genReqId: (req: any) => {
       const incoming = req.headers['x-request-id'];
@@ -90,16 +126,15 @@ async function bootstrap() {
     origin: allowedOrigins,
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-Request-ID', 'Idempotency-Key'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Request-ID', 'Idempotency-Key', 'X-Metrics-Token'],
   });
 
   // 4. API URI Versioning (/v1)
   app.setGlobalPrefix('v1', {
-    exclude: ['health', 'ready', 'docs', 'docs-json'],
+    exclude: ['health', 'ready', 'docs', 'docs-json', 'metrics'],
   });
 
   // 5. OpenAPI Swagger Documentation (/docs) - disabled in production unless ENABLE_DOCS=true
-  const isProduction = envConfig.NODE_ENV === 'production' || envConfig.APP_ENV === 'production';
   const enableDocs = !isProduction || envConfig.ENABLE_DOCS;
 
   if (enableDocs) {

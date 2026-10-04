@@ -150,4 +150,21 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
     await this.set(key, count.toString(), ttlSeconds);
     return count;
   }
+
+  async ping(): Promise<boolean> {
+    if (this.isConnected && this.client) {
+      try {
+        const res = await this.client.ping();
+        return res === 'PONG';
+      } catch {
+        return false;
+      }
+    }
+    const isProduction =
+      this.configService?.get('APP_ENV') === 'production' ||
+      process.env.APP_ENV === 'production' ||
+      process.env.NODE_ENV === 'production';
+    // In dev / test where fallback memory is allowed:
+    return !isProduction;
+  }
 }

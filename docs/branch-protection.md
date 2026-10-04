@@ -17,8 +17,13 @@ Navigate to **Settings > Branches** in the repository (or via API):
 - **Require status checks to pass before merging**
   - Check: *Require branches to be up to date before merging*.
   - Status checks that must pass:
-    - `Lint, Typecheck, Test & Build` (from `.github/workflows/ci.yml`)
-    - `db-real` (real PostGIS migration, seed, and spatial verification)
+    - `Gitleaks Security Audit` (secret scanning on full commit history)
+    - `Production Dependencies Audit` (pnpm audit with zero high/critical vulnerabilities)
+    - `Dependency Review` (vulnerability check for PR package changes)
+    - `CodeQL Security Analysis` (GitHub CodeQL AST analysis)
+    - `Lint, Typecheck, Test & Build` (monorepo lint, types, PostGIS tests, builds, E2E, Lighthouse)
+    - `Real PostGIS Engine & Spatial GiST Verification` (real PostGIS migration, seed, and spatial GiST verification)
+    - `Supabase Staging Zero-Trust RLS Audit` (continuous verification of zero-trust RLS on staging)
 - **Require conversation resolution before merging**
   - All review conversations and comments must be resolved before merging.
 - **Require signed commits** (optional, recommended for production integrity).
@@ -44,7 +49,11 @@ curl -X PUT \
     "required_status_checks": {
       "strict": true,
       "contexts": [
-        "Lint, Typecheck, Test & Build"
+        "Gitleaks Security Audit",
+        "Production Dependencies Audit",
+        "CodeQL Security Analysis",
+        "Lint, Typecheck, Test & Build",
+        "Real PostGIS Engine & Spatial GiST Verification"
       ]
     },
     "enforce_admins": true,

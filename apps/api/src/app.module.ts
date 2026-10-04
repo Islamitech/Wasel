@@ -27,6 +27,7 @@ import { RatingsModule } from './modules/ratings/ratings.module.js';
 import { AdminModule } from './modules/admin/admin.module.js';
 import { RealtimeModule } from './modules/realtime/realtime.module.js';
 import { HealthModule } from './modules/health/health.module.js';
+import { MetricsModule, MetricsInterceptor } from './modules/metrics/index.js';
 
 import { GlobalExceptionFilter } from './common/filters/global-exception.filter.js';
 import { IdempotencyInterceptor } from './common/interceptors/idempotency.interceptor.js';
@@ -68,6 +69,7 @@ import { IdempotencyInterceptor } from './common/interceptors/idempotency.interc
     AdminModule,
     RealtimeModule,
     HealthModule,
+    MetricsModule,
   ],
   providers: [
     {
@@ -81,6 +83,10 @@ import { IdempotencyInterceptor } from './common/interceptors/idempotency.interc
     {
       provide: APP_INTERCEPTOR,
       useClass: IdempotencyInterceptor,
+    },
+    {
+      provide: APP_INTERCEPTOR,
+      useClass: MetricsInterceptor,
     },
   ],
 })

@@ -1,10 +1,30 @@
 {
   "$schema": "https://turbo.build/schema.json",
   "ui": "tui",
+  "globalEnv": [
+    "NODE_ENV",
+    "APP_ENV",
+    "CI",
+    "DATABASE_URL",
+    "REDIS_URL",
+    "JWT_ACCESS_SECRET",
+    "JWT_REFRESH_SECRET",
+    "ENCRYPTION_KEY",
+    "ENCRYPTION_KEY_ID",
+    "OTP_PROVIDER",
+    "MAP_PROVIDER",
+    "PUSH_PROVIDER",
+    "PAYMENT_PROVIDER",
+    "VITE_API_URL",
+    "METRICS_TOKEN",
+    "SENTRY_DSN",
+    "LOG_LEVEL"
+  ],
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
-      "outputs": ["dist/**", ".next/**", "build/**"]
+      "outputs": ["dist/**", ".next/**", "build/**"],
+      "env": ["VITE_API_URL", "NODE_ENV", "APP_ENV"]
     },
     "lint": {
       "dependsOn": ["^build"]
@@ -14,7 +34,24 @@
     },
     "test": {
       "dependsOn": ["^build"],
-      "outputs": ["coverage/**"]
+      "outputs": ["coverage/**"],
+      "env": [
+        "NODE_ENV",
+        "APP_ENV",
+        "DATABASE_URL",
+        "REDIS_URL",
+        "JWT_ACCESS_SECRET",
+        "JWT_REFRESH_SECRET",
+        "ENCRYPTION_KEY",
+        "ENCRYPTION_KEY_ID",
+        "OTP_PROVIDER",
+        "MAP_PROVIDER",
+        "PUSH_PROVIDER",
+        "PAYMENT_PROVIDER",
+        "METRICS_TOKEN",
+        "DB_SSL",
+        "LOG_LEVEL"
+      ]
     },
     "test:e2e": {
       "dependsOn": ["build"]

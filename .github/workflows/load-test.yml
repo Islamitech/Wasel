@@ -1,0 +1,108 @@
+name: Wasel Nightly Load & Stress Tests
+
+on:
+  schedule:
+    # Run every night at 02:00 UTC
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+
+jobs:
+  k6-nightly-load-test:
+    name: Nightly k6 Load Test (Real PostGIS & Redis)
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgis/postgis:16-3.4-alpine
+        env:
+          POSTGRES_DB: wasel_db
+          POSTGRES_USER: wasel_user
+          POSTGRES_PASSWORD: wasel_secret
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Setup pnpm
+        run: npm install -g pnpm@12.9.1
+
+      - name: Setup pnpm cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.pnpm-store
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Apply Database Migrations & Seed Real Dataset
+        env:
+          DATABASE_URL: postgresql://wasel_user:wasel_secret@localhost:5432/wasel_db
+        run: |
+          pnpm db:migrate
+          pnpm db:seed --dev
+
+      - name: Build Monorepo Artifacts
+        run: pnpm build
+
+      - name: Start API Service
+        env:
+          PORT: 3000
+          NODE_ENV: test
+          APP_ENV: staging
+          DATABASE_URL: postgresql://wasel_user:wasel_secret@localhost:5432/wasel_db
+          REDIS_URL: redis://localhost:6379
+          JWT_ACCESS_SECRET: super_secret_jwt_access_key_min_32_chars_long
+          JWT_REFRESH_SECRET: super_secret_jwt_refresh_key_min_32_chars_long
+          ENCRYPTION_KEY: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+          OTP_PROVIDER: dev
+          METRICS_TOKEN: test_metrics_token_secret_123456
+        run: |
+          node apps/api/dist/main.js &
+          for i in $(seq 1 30); do
+            if curl -s http://localhost:3000/health | grep -q "ok"; then
+              echo "API is ready for load testing."
+              break
+            fi
+            sleep 1
+          done
+
+      - name: Setup k6
+        uses: grafana/setup-k6-action@v1
+
+      - name: Execute k6 Load Test Suite
+        env:
+          API_BASE_URL: http://localhost:3000/v1
+        run: |
+          k6 run --summary-export=k6-summary.json scripts/load-test.k6.js
+
+      - name: Upload k6 Test Summary Artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: k6-load-test-summary
+          path: k6-summary.json

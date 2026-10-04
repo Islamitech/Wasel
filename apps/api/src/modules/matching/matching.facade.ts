@@ -1,5 +1,6 @@
-import { Injectable, Inject } from '@nestjs/common';
+import { Injectable, Inject, Optional } from '@nestjs/common';
 import { DatabaseService } from '../../database/database.service.js';
+import { MetricsService } from '../metrics/index.js';
 import { sql } from 'drizzle-orm';
 
 export interface EligibleDriver {
@@ -15,7 +16,10 @@ export interface EligibleDriver {
 
 @Injectable()
 export class MatchingFacade {
-  constructor(@Inject(DatabaseService) private readonly dbService: DatabaseService) {}
+  constructor(
+    @Inject(DatabaseService) private readonly dbService: DatabaseService,
+    @Optional() @Inject(MetricsService) private readonly metricsService?: MetricsService,
+  ) {}
 
   /**
    * High-performance PostGIS driver matching query using app.find_eligible_drivers
@@ -26,6 +30,7 @@ export class MatchingFacade {
     radiusMeters = 3000,
     allowEscalated = false,
   ): Promise<EligibleDriver[]> {
+    const start = process.hrtime.bigint();
     const sanitizedOrderId = orderId.replace(/[^a-f0-9-]/gi, '');
     const radius = Number(radiusMeters) || 3000;
     const escalated = allowEscalated ? 'true' : 'false';
@@ -61,6 +66,9 @@ export class MatchingFacade {
           ? (rows as { rows: unknown[] }).rows
           : []
     ) as unknown as DbEligibleDriverRow[];
+
+    const durationSeconds = Number(process.hrtime.bigint() - start) / 1e9;
+    this.metricsService?.recordMatchingDuration('findEligibleDrivers', durationSeconds);
 
     return resultRows.map((r: DbEligibleDriverRow) => ({
       driverId: r.driver_id,
