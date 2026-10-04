@@ -5,6 +5,17 @@
 -- Reversible: Yes
 -- ============================================================================
 
+-- 0. Ensure roles exist for local/Docker/CI vanilla Postgres (pre-existing in Supabase)
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') THEN
+    CREATE ROLE anon NOLOGIN;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated') THEN
+    CREATE ROLE authenticated NOLOGIN;
+  END IF;
+END $$;
+
 -- 1. Create Extensions Schema and Extensions
 CREATE SCHEMA IF NOT EXISTS extensions;
 GRANT USAGE ON SCHEMA extensions TO public, anon, authenticated;
@@ -42,17 +53,6 @@ SET search_path TO app, extensions, public;
 
 -- 2. Dedicated Application Schema
 CREATE SCHEMA IF NOT EXISTS app;
-
--- Ensure roles exist for local/Docker/CI vanilla Postgres (pre-existing in Supabase)
-DO $$
-BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') THEN
-    CREATE ROLE anon NOLOGIN;
-  END IF;
-  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated') THEN
-    CREATE ROLE authenticated NOLOGIN;
-  END IF;
-END $$;
 
 -- Explicitly revoke access on schema app from anon and authenticated roles
 REVOKE ALL ON SCHEMA app FROM public, anon, authenticated;

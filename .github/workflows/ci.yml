@@ -136,6 +136,17 @@ jobs:
       - name: Verify Schema Drift (Drizzle vs Migrations & Geography Parity)
         run: pnpm db:check-drift
 
+      - name: Setup PostgreSQL Roles & Initial Config
+        env:
+          PGUSER: wasel_user
+          PGPASSWORD: wasel_secret
+          PGHOST: 127.0.0.1
+        run: |
+          sleep 2
+          psql -d wasel_db -c "CREATE ROLE anon NOLOGIN;" 2>/dev/null || true
+          psql -d wasel_db -c "CREATE ROLE authenticated NOLOGIN;" 2>/dev/null || true
+          psql -d wasel_db -c "GRANT USAGE ON SCHEMA public TO anon, authenticated;" 2>/dev/null || true
+
       - name: Apply Database Migrations & Seeds on PostGIS Service
         env:
           DATABASE_URL: postgresql://wasel_user:wasel_secret@127.0.0.1:5432/wasel_db
@@ -246,6 +257,17 @@ jobs:
 
       - name: Verify Schema Drift (Drizzle vs Migrations)
         run: pnpm db:check-drift
+
+      - name: Setup PostgreSQL Roles & Initial Config
+        env:
+          PGUSER: wasel_user
+          PGPASSWORD: wasel_secret
+          PGHOST: 127.0.0.1
+        run: |
+          sleep 2
+          psql -d wasel_db -c "CREATE ROLE anon NOLOGIN;" 2>/dev/null || true
+          psql -d wasel_db -c "CREATE ROLE authenticated NOLOGIN;" 2>/dev/null || true
+          psql -d wasel_db -c "GRANT USAGE ON SCHEMA public TO anon, authenticated;" 2>/dev/null || true
 
       - name: Real PostGIS Fares, Multi-Stop Visits, State Guards & GiST Index Proof
         env:

@@ -55,6 +55,19 @@ export async function runMigrations(options: { status?: boolean; down?: string }
   });
 
   try {
+    // 0. Ensure anon and authenticated roles exist (pre-existing in Supabase, required for vanilla Postgres/Docker)
+    await sql.unsafe(`
+      DO $$
+      BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') THEN
+          CREATE ROLE anon NOLOGIN;
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated') THEN
+          CREATE ROLE authenticated NOLOGIN;
+        END IF;
+      END $$;
+    `);
+
     // 1. Ensure schema and migration tracking table exist
     await sql`CREATE SCHEMA IF NOT EXISTS extensions;`;
     await sql`CREATE SCHEMA IF NOT EXISTS app;`;
