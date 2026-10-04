@@ -12,6 +12,7 @@ export const sessions = appSchema.table('sessions', {
   deviceInfo: varchar('device_info', { length: 255 }),
   ipAddress: varchar('ip_address', { length: 64 }),
   userAgent: text('user_agent'),
+  familyId: uuid('family_id').default(sql`extensions.gen_random_uuid()`).notNull(),
   expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
   revokedAt: timestamp('revoked_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),

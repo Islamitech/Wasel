@@ -23,14 +23,21 @@ import {
   pushSubscriptions,
   vehicles,
 } from '../../database/schema/index.js';
-import { eq, and, desc, isNull, inArray } from 'drizzle-orm';
+import { eq, and, desc, isNull, inArray, sql, lt } from 'drizzle-orm';
 import {
   IOtpProvider,
   OTP_PROVIDER_TOKEN,
 } from '../../common/providers/otp/otp.provider.interface.js';
 import { EventBusService } from '../../common/events/event-bus.service.js';
 import { SettingsService } from '../../common/settings/settings.service.js';
+import { AppConfigService } from '../../config/config.service.js';
+import { RedisService } from '../../common/redis/redis.service.js';
+import { TokenService } from './token.service.js';
+import { AuditService } from '../audit/index.js';
 import { normalizeEgyptianPhone, ErrorCode, UserRole } from '@wasel/shared';
+
+// Constant time bcrypt comparison dummy hash (cost 10)
+const DUMMY_HASH = '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy';
 
 @Injectable()
 export class IdentityService {
@@ -39,13 +46,17 @@ export class IdentityService {
     @Inject(JwtService) private readonly jwtService: JwtService,
     @Inject(EventBusService) private readonly eventBus: EventBusService,
     @Inject(SettingsService) private readonly settingsService: SettingsService,
+    @Inject(AppConfigService) private readonly configService: AppConfigService,
+    @Inject(RedisService) private readonly redisService: RedisService,
+    @Inject(TokenService) private readonly tokenService: TokenService,
+    @Inject(AuditService) private readonly auditService: AuditService,
     @Inject(OTP_PROVIDER_TOKEN) private readonly otpProvider: IOtpProvider,
   ) {}
 
   /**
    * Request OTP code for a phone number
    */
-  async requestOtp(rawPhone: string, requestedRole = UserRole.CUSTOMER) {
+  async requestOtp(rawPhone: string, requestedRole: string = UserRole.CUSTOMER) {
     const phone = normalizeEgyptianPhone(rawPhone);
 
     // 1. Check existing active challenge for cooldown
@@ -79,14 +90,15 @@ export class IdentityService {
     );
     const maxAttempts = await this.settingsService.get<number>('otp_max_attempts', undefined, 3);
 
-    // 3. Generate 6-digit OTP code (deterministic 123456 only in non-production test/dev mode)
+    // 3. Generate 6-digit OTP code (deterministic 123456 ONLY in development/test with OTP_PROVIDER=dev)
+    const appEnv = this.configService.get('APP_ENV');
+    const otpProvider = this.configService.get('OTP_PROVIDER');
     const isDevOrTest =
-      process.env.NODE_ENV !== 'production' &&
-      (process.env.NODE_ENV === 'test' || process.env.OTP_PROVIDER === 'dev');
+      (appEnv === 'development' || appEnv === 'test') && otpProvider === 'dev';
 
     const code = isDevOrTest
       ? '123456'
-      : Math.floor(100000 + Math.random() * 900000).toString();
+      : crypto.randomInt(100000, 1000000).toString();
 
     const hashedCode = await bcrypt.hash(code, 10);
     const expiresAt = new Date(now.getTime() + expiryMinutes * 60 * 1000);
@@ -135,12 +147,20 @@ export class IdentityService {
     deviceInfo = 'Web Browser',
     ipAddress?: string,
     userAgent?: string,
-    requestedRole = UserRole.CUSTOMER,
+    requestedRole: string = UserRole.CUSTOMER,
   ) {
+    // S-01: Disallow admin/support roles via OTP
+    if (requestedRole === 'admin' || requestedRole === 'support') {
+      throw new BadRequestException({
+        errorCode: ErrorCode.VALIDATION_ERROR,
+        message: 'غير مصرح بتسجيل حسابات الإدارة أو الدعم عبر رمز التحقق',
+      });
+    }
+
     const phone = normalizeEgyptianPhone(rawPhone);
     const now = new Date();
 
-    // 1. Fetch latest challenge for this phone
+    // 1. Fetch latest active unverified challenge for this phone
     const [challenge] = await this.dbService.db
       .select()
       .from(otpChallenges)
@@ -163,24 +183,32 @@ export class IdentityService {
       });
     }
 
-    // 3. Check attempt limit (brute-force protection)
-    if (challenge.attempts >= challenge.maxAttempts) {
+    // 3. Atomic attempt increment and bounds check
+    const updatedChallenges = await this.dbService.db
+      .update(otpChallenges)
+      .set({ attempts: sql`${otpChallenges.attempts} + 1` })
+      .where(
+        and(
+          eq(otpChallenges.id, challenge.id),
+          lt(otpChallenges.attempts, challenge.maxAttempts),
+          isNull(otpChallenges.verifiedAt),
+        ),
+      )
+      .returning();
+
+    if (updatedChallenges.length === 0) {
       throw new BadRequestException({
         errorCode: ErrorCode.OTP_MAX_ATTEMPTS,
         message: 'تم استنفاد المحاولات المسموح بها، يرجى طلب رمز جديد',
       });
     }
 
+    const currentAttempts = updatedChallenges[0]!.attempts;
+
     // 4. Verify code match
     const isValid = await bcrypt.compare(code, challenge.hashedCode);
     if (!isValid) {
-      const updatedAttempts = challenge.attempts + 1;
-      await this.dbService.db
-        .update(otpChallenges)
-        .set({ attempts: updatedAttempts })
-        .where(eq(otpChallenges.id, challenge.id));
-
-      const remaining = challenge.maxAttempts - updatedAttempts;
+      const remaining = challenge.maxAttempts - currentAttempts;
       throw new BadRequestException({
         errorCode: ErrorCode.OTP_INVALID,
         message:
@@ -191,11 +219,19 @@ export class IdentityService {
       });
     }
 
-    // 5. Mark challenge as verified
-    await this.dbService.db
+    // 5. Atomic challenge consumption
+    const consumedChallenges = await this.dbService.db
       .update(otpChallenges)
       .set({ verifiedAt: now })
-      .where(eq(otpChallenges.id, challenge.id));
+      .where(and(eq(otpChallenges.id, challenge.id), isNull(otpChallenges.verifiedAt)))
+      .returning();
+
+    if (consumedChallenges.length === 0) {
+      throw new BadRequestException({
+        errorCode: ErrorCode.OTP_EXPIRED,
+        message: 'تم استهلاك رمز التحقق مسبقاً',
+      });
+    }
 
     // 6. Find or create user
     let isNewUser = false;
@@ -205,8 +241,48 @@ export class IdentityService {
       .where(eq(users.phone, phone))
       .limit(1);
 
-    if (!user) {
-      // Find default region (Hadayek al-Ahram)
+    if (user) {
+      // S-06: Inactive user rejected
+      if (!user.isActive) {
+        throw new UnauthorizedException({
+          errorCode: ErrorCode.UNAUTHORIZED,
+          message: 'حساب المستخدم معطل أو غير نشط',
+        });
+      }
+
+      // S-01: For existing user, only allow adding the other public role (customer <-> driver)
+      const { userRoleNames } = await this.getUserRolesAndPermissions(user.id);
+      if (
+        (requestedRole === 'customer' || requestedRole === 'driver') &&
+        !userRoleNames.includes(requestedRole)
+      ) {
+        const [roleRecord] = await this.dbService.db
+          .select()
+          .from(roles)
+          .where(eq(roles.name, requestedRole))
+          .limit(1);
+
+        if (roleRecord) {
+          await this.dbService.db.insert(userRoles).values({
+            userId: user.id,
+            roleId: roleRecord.id,
+          });
+
+          await this.tokenService.invalidateUserCache(user.id);
+
+          await this.auditService.log({
+            userId: user.id,
+            action: 'identity.role_added',
+            entityType: 'user_roles',
+            beforeState: { existingRoles: userRoleNames },
+            afterState: { addedRole: requestedRole },
+            ipAddress,
+            userAgent,
+          });
+        }
+      }
+    } else {
+      // Find default region
       const [defaultRegion] = await this.dbService.db
         .select()
         .from(regions)
@@ -225,7 +301,7 @@ export class IdentityService {
       user = newUser!;
       isNewUser = true;
 
-      // Assign requested role
+      // Assign initial public role
       const [roleRecord] = await this.dbService.db
         .select()
         .from(roles)
@@ -238,13 +314,29 @@ export class IdentityService {
           roleId: roleRecord.id,
         });
       }
+
+      await this.auditService.log({
+        userId: user.id,
+        action: 'identity.user_registered',
+        entityType: 'users',
+        entityId: user.id,
+        afterState: { phone: user.phone, role: requestedRole },
+        ipAddress,
+        userAgent,
+      });
     }
 
     // 7. Load roles & permissions
     const { userRoleNames, userPermissionNames } = await this.getUserRolesAndPermissions(user.id);
 
-    // 8. Generate tokens & session
-    const tokens = await this.generateSession(user.id, userRoleNames, userPermissionNames, deviceInfo, ipAddress, userAgent);
+    // 8. Generate session with cryptographic family_id
+    const tokens = await this.generateSession(
+      user.id,
+      undefined,
+      deviceInfo,
+      ipAddress,
+      userAgent,
+    );
 
     // 9. Publish event
     if (isNewUser) {
@@ -278,40 +370,101 @@ export class IdentityService {
   }
 
   /**
-   * Admin Authentication (Email + Password)
+   * Admin Authentication (Email + Password) - S-16 Hardened
    */
-  async adminLogin(email: string, pass: string, deviceInfo = 'Admin Web', ipAddress?: string, userAgent?: string) {
+  async adminLogin(
+    email: string,
+    pass: string,
+    deviceInfo = 'Admin Web',
+    ipAddress?: string,
+    userAgent?: string,
+  ) {
+    const normalizedEmail = email.toLowerCase().trim();
+    const lockoutKey = `admin:lockout:${normalizedEmail}:${ipAddress || 'unknown'}`;
+
+    // S-16: Check temporary lockout (5 failed attempts / 15 minutes)
+    const attemptsStr = await this.redisService.get(lockoutKey);
+    const currentAttempts = parseInt(attemptsStr || '0', 10);
+    if (currentAttempts >= 5) {
+      await this.auditService.log({
+        action: 'security.admin_login_locked_out',
+        entityType: 'admin_login',
+        beforeState: { email: normalizedEmail, ipAddress, currentAttempts },
+        ipAddress,
+        userAgent,
+      });
+
+      throw new UnauthorizedException({
+        errorCode: ErrorCode.RATE_LIMITED,
+        message: 'تم قفل الحساب مؤقتاً لتكرار المحاولات الخاطئة. يرجى المحاولة بعد 15 دقيقة.',
+      });
+    }
+
     const [user] = await this.dbService.db
       .select()
       .from(users)
-      .where(eq(users.email, email.toLowerCase()))
+      .where(eq(users.email, normalizedEmail))
       .limit(1);
 
-    if (!user || !user.passwordHash || !user.isActive) {
+    // S-16: Constant-time comparison against DUMMY_HASH if account doesn't exist
+    const hashToCompare = user?.passwordHash || DUMMY_HASH;
+    const isMatch = await bcrypt.compare(pass, hashToCompare);
+
+    if (!user || !user.passwordHash || !user.isActive || !isMatch) {
+      await this.redisService.incr(lockoutKey, 15 * 60);
+
+      await this.auditService.log({
+        userId: user?.id,
+        action: 'security.admin_login_failed',
+        entityType: 'admin_login',
+        beforeState: { email: normalizedEmail, ipAddress },
+        ipAddress,
+        userAgent,
+      });
+
       throw new UnauthorizedException({
         errorCode: ErrorCode.UNAUTHORIZED,
         message: 'بيانات الدخول غير صحيحة أو الحساب غير مفعل',
       });
     }
 
-    const isMatch = await bcrypt.compare(pass, user.passwordHash);
-    if (!isMatch) {
-      throw new UnauthorizedException({
-        errorCode: ErrorCode.UNAUTHORIZED,
-        message: 'بيانات الدخول غير صحيحة',
-      });
-    }
-
     const { userRoleNames, userPermissionNames } = await this.getUserRolesAndPermissions(user.id);
 
     if (!userRoleNames.includes('admin') && !userRoleNames.includes('support')) {
+      await this.auditService.log({
+        userId: user.id,
+        action: 'security.admin_login_unauthorized_role',
+        entityType: 'admin_login',
+        beforeState: { email: normalizedEmail, roles: userRoleNames },
+        ipAddress,
+        userAgent,
+      });
+
       throw new UnauthorizedException({
         errorCode: ErrorCode.FORBIDDEN,
         message: 'هذا الحساب لا يملك صلاحية الدخول للوحة التحكم',
       });
     }
 
-    const tokens = await this.generateSession(user.id, userRoleNames, userPermissionNames, deviceInfo, ipAddress, userAgent);
+    // Success: Clear lockout counter
+    await this.redisService.del(lockoutKey);
+
+    const tokens = await this.generateSession(
+      user.id,
+      undefined,
+      deviceInfo,
+      ipAddress,
+      userAgent,
+    );
+
+    await this.auditService.log({
+      userId: user.id,
+      action: 'admin.login_success',
+      entityType: 'admin_login',
+      entityId: user.id,
+      ipAddress,
+      userAgent,
+    });
 
     await this.eventBus.publish('user.authenticated', user.id, {
       userId: user.id,
@@ -327,6 +480,7 @@ export class IdentityService {
         id: user.id,
         email: user.email,
         fullName: user.fullName,
+        mustChangePassword: user.mustChangePassword,
         roles: userRoleNames,
         permissions: userPermissionNames,
       },
@@ -334,13 +488,16 @@ export class IdentityService {
   }
 
   /**
-   * Rotate refresh token
+   * Rotate refresh token - S-06 Atomic & Family Invalidation
    */
   async refreshAccessToken(rawRefreshToken: string, ipAddress?: string, userAgent?: string) {
     let payload: any;
     try {
       payload = await this.jwtService.verifyAsync(rawRefreshToken, {
-        secret: process.env.JWT_REFRESH_SECRET || 'super_secret_jwt_refresh_key_min_32_chars_long',
+        secret: this.configService.get('JWT_REFRESH_SECRET'),
+        algorithms: ['HS256'],
+        issuer: this.configService.get('JWT_ISSUER'),
+        audience: this.configService.get('JWT_AUDIENCE'),
       });
     } catch {
       throw new UnauthorizedException({
@@ -349,46 +506,109 @@ export class IdentityService {
       });
     }
 
+    if (payload.typ !== 'refresh' || !payload.sessionId || !payload.sub) {
+      throw new UnauthorizedException({
+        errorCode: ErrorCode.UNAUTHORIZED,
+        message: 'رمز التحديث غير صالح',
+      });
+    }
+
     const sessionId = payload.sessionId;
     const [session] = await this.dbService.db
       .select()
       .from(sessions)
-      .where(and(eq(sessions.id, sessionId), isNull(sessions.revokedAt)))
+      .where(eq(sessions.id, sessionId))
       .limit(1);
 
-    if (!session || session.expiresAt < new Date()) {
+    if (!session) {
+      throw new UnauthorizedException({
+        errorCode: ErrorCode.UNAUTHORIZED,
+        message: 'الجلسة غير موجودة',
+      });
+    }
+
+    // S-06: Reuse detection! If session is already revoked, invalidate entire session family
+    if (session.revokedAt !== null) {
+      await this.dbService.db
+        .update(sessions)
+        .set({ revokedAt: new Date() })
+        .where(and(eq(sessions.familyId, session.familyId), isNull(sessions.revokedAt)));
+
+      await this.auditService.log({
+        userId: session.userId,
+        action: 'security.refresh_token_reuse_breach',
+        entityType: 'sessions',
+        entityId: session.id,
+        beforeState: { familyId: session.familyId, attemptedSessionId: session.id },
+        ipAddress,
+        userAgent,
+      });
+
+      throw new UnauthorizedException({
+        errorCode: ErrorCode.UNAUTHORIZED,
+        message: 'تم اكتشاف محاولة إعادة استخدام رمز أمني غير صالح. تم إبطال كافة الجلسات المرتبطة.',
+      });
+    }
+
+    if (session.expiresAt < new Date()) {
       throw new UnauthorizedException({
         errorCode: ErrorCode.UNAUTHORIZED,
         message: 'انتهت صلاحية الجلسة، يرجى تسجيل الدخول مجدداً',
       });
     }
 
-    // Hash check
+    // Cryptographic hash validation
     const tokenHash = crypto.createHash('sha256').update(rawRefreshToken).digest('hex');
     if (session.refreshTokenHash !== tokenHash) {
-      // Possible reuse attack! Revoke session immediately
       await this.dbService.db
         .update(sessions)
         .set({ revokedAt: new Date() })
-        .where(eq(sessions.id, session.id));
+        .where(and(eq(sessions.familyId, session.familyId), isNull(sessions.revokedAt)));
+
       throw new UnauthorizedException({
         errorCode: ErrorCode.UNAUTHORIZED,
         message: 'تم رفض الجلسة لأسباب أمنية',
       });
     }
 
-    // Revoke old session & create new rotated session
-    await this.dbService.db
+    // Verify user is active
+    const [user] = await this.dbService.db
+      .select()
+      .from(users)
+      .where(eq(users.id, session.userId))
+      .limit(1);
+
+    if (!user || !user.isActive) {
+      throw new UnauthorizedException({
+        errorCode: ErrorCode.UNAUTHORIZED,
+        message: 'حساب المستخدم معطل أو غير موجود',
+      });
+    }
+
+    // S-06: Atomic revocation with RETURNING to handle concurrent race conditions
+    const revoked = await this.dbService.db
       .update(sessions)
       .set({ revokedAt: new Date() })
-      .where(eq(sessions.id, session.id));
+      .where(and(eq(sessions.id, session.id), isNull(sessions.revokedAt)))
+      .returning();
 
-    const { userRoleNames, userPermissionNames } = await this.getUserRolesAndPermissions(session.userId);
+    if (revoked.length === 0) {
+      // Parallel race condition: another concurrent request already rotated this session!
+      await this.dbService.db
+        .update(sessions)
+        .set({ revokedAt: new Date() })
+        .where(and(eq(sessions.familyId, session.familyId), isNull(sessions.revokedAt)));
 
+      throw new UnauthorizedException({
+        errorCode: ErrorCode.UNAUTHORIZED,
+        message: 'فشلت معالجة رمز التحديث المتزامن',
+      });
+    }
+
+    // Generate next session maintaining the same familyId
     const newTokens = await this.generateSession(
       session.userId,
-      userRoleNames,
-      userPermissionNames,
+      session.familyId,
       session.deviceInfo || 'Rotated Session',
       ipAddress || session.ipAddress || undefined,
       userAgent || session.userAgent || undefined,
@@ -403,21 +623,43 @@ export class IdentityService {
   /**
    * Log out session
    */
-  async logout(rawRefreshToken?: string, userId?: string, allDevices = false) {
+  async logout(
+    rawRefreshToken?: string,
+    userId?: string,
+    allDevices = false,
+    currentSessionId?: string,
+  ) {
+    const now = new Date();
+
     if (allDevices && userId) {
       await this.dbService.db
         .update(sessions)
-        .set({ revokedAt: new Date() })
+        .set({ revokedAt: now })
         .where(and(eq(sessions.userId, userId), isNull(sessions.revokedAt)));
+
+      if (userId) {
+        await this.tokenService.invalidateUserCache(userId);
+      }
       return { success: true, message: 'تم تسجيل الخروج من كافة الأجهزة بنجاح' };
+    }
+
+    if (currentSessionId) {
+      await this.dbService.db
+        .update(sessions)
+        .set({ revokedAt: now })
+        .where(eq(sessions.id, currentSessionId));
     }
 
     if (rawRefreshToken) {
       const tokenHash = crypto.createHash('sha256').update(rawRefreshToken).digest('hex');
       await this.dbService.db
         .update(sessions)
-        .set({ revokedAt: new Date() })
+        .set({ revokedAt: now })
         .where(eq(sessions.refreshTokenHash, tokenHash));
+    }
+
+    if (userId) {
+      await this.tokenService.invalidateUserCache(userId);
     }
 
     return { success: true, message: 'تم تسجيل الخروج بنجاح' };
@@ -445,6 +687,7 @@ export class IdentityService {
       email: user.email,
       fullName: user.fullName,
       regionId: user.regionId,
+      mustChangePassword: user.mustChangePassword,
       roles: userRoleNames,
       permissions: userPermissionNames,
     };
@@ -455,37 +698,49 @@ export class IdentityService {
    */
   private async generateSession(
     userId: string,
-    rolesList: string[],
-    permissionsList: string[],
-    deviceInfo: string,
+    familyId?: string,
+    deviceInfo = 'Web Browser',
     ipAddress?: string,
     userAgent?: string,
   ) {
     const sessionId = crypto.randomUUID();
-    const accessSecret = process.env.JWT_ACCESS_SECRET || 'super_secret_jwt_access_key_min_32_chars_long';
-    const refreshSecret = process.env.JWT_REFRESH_SECRET || 'super_secret_jwt_refresh_key_min_32_chars_long';
+    const currentFamilyId = familyId || crypto.randomUUID();
 
+    const accessSecret = this.configService.get('JWT_ACCESS_SECRET');
+    const refreshSecret = this.configService.get('JWT_REFRESH_SECRET');
+    const issuer = this.configService.get('JWT_ISSUER');
+    const audience = this.configService.get('JWT_AUDIENCE');
+
+    // S-06: typ='access', NO permissions in JWT payload
     const accessToken = await this.jwtService.signAsync(
       {
         sub: userId,
         sessionId,
-        roles: rolesList,
-        permissions: permissionsList,
+        typ: 'access',
       },
       {
         secret: accessSecret,
         expiresIn: '15m',
+        algorithm: 'HS256',
+        issuer,
+        audience,
       },
     );
 
+    // Refresh token with typ='refresh'
     const refreshToken = await this.jwtService.signAsync(
       {
         sub: userId,
         sessionId,
+        familyId: currentFamilyId,
+        typ: 'refresh',
       },
       {
         secret: refreshSecret,
         expiresIn: '30d',
+        algorithm: 'HS256',
+        issuer,
+        audience,
       },
     );
 
@@ -495,6 +750,7 @@ export class IdentityService {
     await this.dbService.db.insert(sessions).values({
       id: sessionId,
       userId,
+      familyId: currentFamilyId,
       refreshTokenHash,
       deviceInfo,
       ipAddress,
@@ -543,8 +799,16 @@ export class IdentityService {
 
   async getMe(userId: string) {
     const user = await this.getUserProfile(userId);
-    const [custProfile] = await this.dbService.db.select().from(customerProfiles).where(eq(customerProfiles.id, userId)).limit(1);
-    const [drvProfile] = await this.dbService.db.select().from(driverProfiles).where(eq(driverProfiles.id, userId)).limit(1);
+    const [custProfile] = await this.dbService.db
+      .select()
+      .from(customerProfiles)
+      .where(eq(customerProfiles.id, userId))
+      .limit(1);
+    const [drvProfile] = await this.dbService.db
+      .select()
+      .from(driverProfiles)
+      .where(eq(driverProfiles.id, userId))
+      .limit(1);
 
     return {
       ...user,
@@ -566,11 +830,16 @@ export class IdentityService {
     return this.getMe(userId);
   }
 
-  async registerPushDevice(userId: string, dto: { endpoint: string; keys: { p256dh: string; auth: string }; deviceInfo?: string }) {
+  async registerPushDevice(
+    userId: string,
+    dto: { endpoint: string; keys: { p256dh: string; auth: string }; deviceInfo?: string },
+  ) {
     const [existing] = await this.dbService.db
       .select()
       .from(pushSubscriptions)
-      .where(and(eq(pushSubscriptions.userId, userId), eq(pushSubscriptions.endpoint, dto.endpoint)))
+      .where(
+        and(eq(pushSubscriptions.userId, userId), eq(pushSubscriptions.endpoint, dto.endpoint)),
+      )
       .limit(1);
 
     if (existing) {
@@ -643,4 +912,3 @@ export class IdentityService {
     };
   }
 }
-

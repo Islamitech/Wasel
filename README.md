@@ -54,14 +54,14 @@ pnpm dev
 
 ## 🌐 Application Ports & Endpoints
 
-| Service | URL | Description | Default Credentials |
+| Service | URL | Description | Credentials / Access |
 | :--- | :--- | :--- | :--- |
 | **API Server** | `http://localhost:3000/v1` | NestJS Modular Monolith API | - |
-| **API Docs (OpenAPI)** | `http://localhost:3000/docs` | Interactive Swagger UI | - |
-| **Customer PWA** | `http://localhost:5173` | Customer Web App Shell | Phone login with Dev OTP (`123456`) |
-| **Driver PWA** | `http://localhost:5174` | Driver Web App Shell | Phone login with Dev OTP (`123456`) |
-| **Admin Web** | `http://localhost:5175` | Admin Management Dashboard | `admin@wasel.local` / `Admin@123456` |
-| **MinIO Console** | `http://localhost:9001` | Object Storage Console | `minio_admin` / `minio_password` |
+| **API Docs (OpenAPI)** | `http://localhost:3000/docs` | Interactive Swagger UI (Dev/Staging) | - |
+| **Customer PWA** | `http://localhost:5173` | Customer Web App Shell | Phone login with OTP |
+| **Driver PWA** | `http://localhost:5174` | Driver Web App Shell | Phone login with OTP |
+| **Admin Web** | `http://localhost:5175` | Admin Management Dashboard | Bootstrap via `pnpm db:bootstrap-admin` |
+| **MinIO Console** | `http://localhost:9001` | Object Storage Console | Configured via env variables |
 | **Mailpit** | `http://localhost:8025` | Local Email Web Interface | - |
 
 ---

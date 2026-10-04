@@ -3,6 +3,11 @@ import { APP_FILTER, APP_INTERCEPTOR } from '@nestjs/core';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { APP_GUARD } from '@nestjs/core';
 
+import { AppConfigModule } from './config/config.module.js';
+import { RedisModule } from './common/redis/redis.module.js';
+import { RedisService } from './common/redis/redis.service.js';
+import { RedisThrottlerStorage } from './common/throttler/redis-throttler-storage.js';
+
 import { DatabaseModule } from './database/database.module.js';
 import { EventsModule } from './common/events/events.module.js';
 import { SettingsModule } from './common/settings/settings.module.js';
@@ -28,12 +33,22 @@ import { IdempotencyInterceptor } from './common/interceptors/idempotency.interc
 
 @Module({
   imports: [
-    ThrottlerModule.forRoot([
-      {
-        ttl: 60000,
-        limit: 120, // 120 requests per minute
-      },
-    ]),
+    AppConfigModule,
+    RedisModule,
+    ThrottlerModule.forRootAsync({
+      imports: [RedisModule],
+      inject: [RedisService],
+      useFactory: (redisService: RedisService) => ({
+        throttlers: [
+          {
+            name: 'default',
+            ttl: 60000,
+            limit: 120,
+          },
+        ],
+        storage: new RedisThrottlerStorage(redisService),
+      }),
+    }),
     DatabaseModule,
     EventsModule,
     SettingsModule,

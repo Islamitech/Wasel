@@ -19,8 +19,12 @@ import {
   loadSizes,
   pricingRules,
   verificationLevels,
+  sessions,
+  permissions,
+  rolePermissions,
 } from '../src/database/schema/index.js';
-import { eq } from 'drizzle-orm';
+import { eq, and } from 'drizzle-orm';
+import * as crypto from 'crypto';
 
 export interface TestContext {
   app: INestApplication;
@@ -100,6 +104,43 @@ export async function getTestContext(): Promise<TestContext> {
   if (!driverRole) {
     [driverRole] = await dbService.db.insert(roles).values({ name: 'driver', description: 'Driver' }).returning();
   }
+
+  const ensureRolePerms = async (roleId: string, permNames: string[]) => {
+    for (const name of permNames) {
+      let [p] = await dbService.db.select().from(permissions).where(eq(permissions.name, name)).limit(1);
+      if (!p) {
+        const [resource, action] = name.split(':');
+        [p] = await dbService.db
+          .insert(permissions)
+          .values({
+            name,
+            resource: resource || 'general',
+            action: action || 'all',
+            description: name,
+          })
+          .returning();
+      }
+      const existingRp = await dbService.db
+        .select()
+        .from(rolePermissions)
+        .where(and(eq(rolePermissions.roleId, roleId), eq(rolePermissions.permissionId, p!.id)))
+        .limit(1);
+      if (!existingRp[0]) {
+        await dbService.db.insert(rolePermissions).values({ roleId, permissionId: p!.id });
+      }
+    }
+  };
+
+  await ensureRolePerms(custRole!.id, ['orders:create', 'orders:read', 'orders:update', 'orders:cancel']);
+  await ensureRolePerms(driverRole!.id, [
+    'driver:read',
+    'orders:read',
+    'orders:accept',
+    'offers:create',
+    'offers:read',
+    'execution:update',
+    'ratings:create',
+  ]);
 
   // Ensure Vehicle Type
   let [vType] = await dbService.db.select().from(vehicleTypes).limit(1);
@@ -229,12 +270,32 @@ export async function getTestContext(): Promise<TestContext> {
       roleId: custRole!.id,
     });
 
-    const token = jwtService.sign({
-      sub: user!.id,
-      phone: user!.phone,
-      roles: ['customer'],
-      permissions: ['orders:create', 'orders:read'],
+    const sessionId = crypto.randomUUID();
+    const familyId = crypto.randomUUID();
+    await dbService.db.insert(sessions).values({
+      id: sessionId,
+      userId: user!.id,
+      familyId,
+      refreshTokenHash: 'mock-hash-customer',
+      expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
     });
+
+    const token = await jwtService.signAsync(
+      {
+        sub: user!.id,
+        sessionId,
+        typ: 'access',
+        phone: user!.phone,
+        roles: ['customer'],
+      },
+      {
+        secret: process.env.JWT_ACCESS_SECRET || 'super_secret_jwt_access_key_min_32_chars_long',
+        expiresIn: '15m',
+        algorithm: 'HS256',
+        issuer: 'wasel-api',
+        audience: 'wasel-app',
+      },
+    );
 
     return { user: user!, token };
   };
@@ -295,12 +356,32 @@ export async function getTestContext(): Promise<TestContext> {
       roleId: driverRole!.id,
     });
 
-    const token = jwtService.sign({
-      sub: user!.id,
-      phone: user!.phone,
-      roles: ['driver'],
-      permissions: ['driver:read', 'orders:accept'],
+    const driverSessionId = crypto.randomUUID();
+    const driverFamilyId = crypto.randomUUID();
+    await dbService.db.insert(sessions).values({
+      id: driverSessionId,
+      userId: user!.id,
+      familyId: driverFamilyId,
+      refreshTokenHash: 'mock-hash-driver',
+      expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
     });
+
+    const token = await jwtService.signAsync(
+      {
+        sub: user!.id,
+        sessionId: driverSessionId,
+        typ: 'access',
+        phone: user!.phone,
+        roles: ['driver'],
+      },
+      {
+        secret: process.env.JWT_ACCESS_SECRET || 'super_secret_jwt_access_key_min_32_chars_long',
+        expiresIn: '15m',
+        algorithm: 'HS256',
+        issuer: 'wasel-api',
+        audience: 'wasel-app',
+      },
+    );
 
     return { user: user!, driverProfile: driverProfile!, vehicle: vehicle!, token };
   };

@@ -5,13 +5,13 @@ import {
   UnauthorizedException,
   Inject,
 } from '@nestjs/common';
-import { JwtService } from '@nestjs/jwt';
 import { Request } from 'express';
+import { TokenService } from '../token.service.js';
 import { ErrorCode } from '@wasel/shared';
 
 @Injectable()
 export class JwtAuthGuard implements CanActivate {
-  constructor(@Inject(JwtService) private readonly jwtService: JwtService) {}
+  constructor(@Inject(TokenService) private readonly tokenService: TokenService) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest<Request>();
@@ -25,18 +25,15 @@ export class JwtAuthGuard implements CanActivate {
     }
 
     const token = authHeader.split(' ')[1];
-    try {
-      const payload = await this.jwtService.verifyAsync(token!, {
-        secret: process.env.JWT_ACCESS_SECRET || 'super_secret_jwt_access_key_min_32_chars_long',
-      });
-
-      (request as any).user = payload;
-      return true;
-    } catch {
+    if (!token) {
       throw new UnauthorizedException({
         errorCode: ErrorCode.UNAUTHORIZED,
-        message: 'انتهت صلاحية جلسة الدخول أو رمز الدخول غير صالح',
+        message: 'رمز الدخول مفقود أو غير صالح',
       });
     }
+
+    const user = await this.tokenService.verifyAccessToken(token);
+    (request as any).user = user;
+    return true;
   }
 }

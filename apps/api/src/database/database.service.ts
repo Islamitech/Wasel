@@ -16,31 +16,48 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
     const connectionString =
       process.env.DATABASE_URL || 'postgresql://wasel_user:wasel_secret@localhost:5432/wasel_db';
 
-    try {
-      // Test external PostgreSQL connection with 1.5s timeout
-      const testClient = postgres(connectionString, {
-        max: 1,
-        connect_timeout: 1.5,
-        idle_timeout: 1,
-      });
-      await testClient`SELECT 1`;
-      await testClient.end();
+    const isTest = process.env.NODE_ENV === 'test' || process.env.APP_ENV === 'test';
+    const maxRetries = isTest ? 1 : 3;
+    let lastError: Error | null = null;
 
-      // PostgreSQL is available
-      this.client = postgres(connectionString, { max: 20 });
-      this.db = drizzle(this.client, { schema });
-      this.logger.log('✅ Connected to external PostgreSQL (Production PostGIS Engine: Real PostGIS + GiST indexes active)');
-    } catch (err: any) {
-      this.logger.warn(
-        `⚠️ External PostgreSQL not available (${err.message || 'connection failed'}). Falling back to embedded local PostgreSQL (PGlite)...`,
-      );
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        const testClient = postgres(connectionString, {
+          max: 1,
+          connect_timeout: isTest ? 0.5 : 2,
+          idle_timeout: 1,
+        });
+        await testClient`SELECT 1`;
+        await testClient.end();
 
-      // Initialize embedded PGlite
-      const embedded = await initEmbeddedDatabase();
-      this.pglite = embedded.pglite;
-      this.db = embedded.db as any;
-      this.logger.log('✅ Embedded PostgreSQL (PGlite) active [ENGINE: FAST APPROXIMATION ONLY - NOT PRODUCTION PROOF FOR POSTGIS GIST INDEXES]');
+        this.client = postgres(connectionString, { max: 20 });
+        this.db = drizzle(this.client, { schema });
+        this.logger.log('✅ Connected to external PostgreSQL (Production PostGIS Engine: Real PostGIS + GiST indexes active)');
+        return;
+      } catch (err: any) {
+        lastError = err;
+        if (attempt < maxRetries) {
+          const delayMs = Math.pow(2, attempt) * 250;
+          this.logger.warn(`PostgreSQL connection attempt ${attempt} failed (${err.message}). Retrying in ${delayMs}ms...`);
+          await new Promise((res) => setTimeout(res, delayMs));
+        }
+      }
     }
+
+    // Fail-fast in production and development (NO PGlite fallback in runtime)
+    if (!isTest) {
+      this.logger.error(`❌ Fatal: Unable to connect to external PostgreSQL after ${maxRetries} attempts: ${lastError?.message}`);
+      throw new Error(`Database connection failed: ${lastError?.message || 'Unable to reach PostgreSQL'}`);
+    }
+
+    // In isolated test runner environment ONLY:
+    this.logger.warn(
+      `⚠️ External PostgreSQL not available in test runner (${lastError?.message || 'connection failed'}). Using embedded test PGlite...`,
+    );
+    const embedded = await initEmbeddedDatabase();
+    this.pglite = embedded.pglite;
+    this.db = embedded.db as any;
+    this.logger.log('✅ Embedded test PostgreSQL (PGlite) active [TEST RUNNER ONLY]');
   }
 
   async onModuleDestroy() {

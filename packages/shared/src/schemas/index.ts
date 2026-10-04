@@ -1,5 +1,4 @@
 import { z } from 'zod';
-import { UserRole } from '../enums/index.js';
 
 export function normalizeEgyptianPhone(input: string): string {
   if (!input) return '';
@@ -42,9 +41,12 @@ export const PhoneSchema = z
     message: 'رقم الهاتف يجب أن يكون رقم مصري صحيح (مثال: 01012345678)',
   });
 
+export const PublicRegistrationRole = z.enum(['customer', 'driver']);
+export type PublicRegistrationRoleType = z.infer<typeof PublicRegistrationRole>;
+
 export const RequestOtpSchema = z.object({
   phone: PhoneSchema,
-  role: z.nativeEnum(UserRole).default(UserRole.CUSTOMER),
+  role: PublicRegistrationRole.default('customer'),
 });
 
 export type RequestOtpDto = z.infer<typeof RequestOtpSchema>;
@@ -53,7 +55,7 @@ export const VerifyOtpSchema = z.object({
   phone: PhoneSchema,
   code: z.string().length(6, 'رمز التحقق يجب أن يتكون من 6 أرقام'),
   deviceInfo: z.string().optional().default('Web Browser'),
-  role: z.nativeEnum(UserRole).default(UserRole.CUSTOMER),
+  role: PublicRegistrationRole.default('customer'),
 });
 
 export type VerifyOtpDto = z.infer<typeof VerifyOtpSchema>;

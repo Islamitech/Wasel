@@ -10,8 +10,8 @@ import {
 } from '@nestjs/common';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { Request, Response } from 'express';
-import { JwtService } from '@nestjs/jwt';
 import { RealtimeService } from './realtime.service.js';
+import { IdentityFacade } from '../identity/index.js';
 import * as crypto from 'crypto';
 
 @ApiTags('Realtime SSE Stream')
@@ -19,7 +19,7 @@ import * as crypto from 'crypto';
 export class RealtimeController {
   constructor(
     @Inject(RealtimeService) private readonly realtimeService: RealtimeService,
-    @Inject(JwtService) private readonly jwtService: JwtService,
+    @Inject(IdentityFacade) private readonly identityFacade: IdentityFacade,
   ) {}
 
   @Get('stream')
@@ -41,16 +41,8 @@ export class RealtimeController {
       throw new UnauthorizedException('Authentication token required for SSE stream');
     }
 
-    let payload: any;
-    try {
-      payload = await this.jwtService.verifyAsync(token, {
-        secret: process.env.JWT_ACCESS_SECRET || 'super_secret_jwt_access_key_min_32_chars_long',
-      });
-    } catch {
-      throw new UnauthorizedException('Invalid or expired token for SSE stream');
-    }
-
-    const userId = payload.sub;
+    const authUser = await this.identityFacade.verifyAccessToken(token);
+    const userId = authUser.sub;
 
     // Set SSE headers
     res.setHeader('Content-Type', 'text/event-stream');

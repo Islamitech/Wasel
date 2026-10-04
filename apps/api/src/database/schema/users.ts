@@ -11,6 +11,7 @@ export const users = appSchema.table('users', {
   fullName: varchar('full_name', { length: 255 }),
   regionId: uuid('region_id').references(() => regions.id),
   isActive: boolean('is_active').default(true).notNull(),
+  mustChangePassword: boolean('must_change_password').default(false).notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 });

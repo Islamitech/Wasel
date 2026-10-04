@@ -5,8 +5,10 @@ An Arabic-first (RTL) local logistics and delivery marketplace connecting reside
 
 ## Current capabilities
 - Platform foundation and system architecture established.
-- User registration and authentication via phone number and OTP verification.
-- Administration portal authentication with email, password, and granular role-based permissions.
+- User registration and authentication via phone number and OTP verification with strict privilege escalation prevention.
+- Cryptographically hardened JWT access and refresh token rotation with session family breach invalidation and immediate logout revocation.
+- Administration portal authentication with email, password, constant-time verification, temporary lockout, and granular role-based permissions.
+- Production startup environment verification guarding against insecure placeholder secrets and unencrypted connections.
 - Modular bounded-context backend architecture with region scoping (Hadayek al-Ahram / Giza).
 - Progressive Web App shells for customers and drivers with Arabic typography, design tokens, and offline support.
 
@@ -17,4 +19,4 @@ An Arabic-first (RTL) local logistics and delivery marketplace connecting reside
 - Real-time order dispatch and driver tracking.
 
 ## Updated
-2026-10-04 — Initial foundation bootstrap including modular backend, PWA client shells, and authentication.
+2026-10-04 — Phase 1: Critical Security Hardening in apps/api (S-01 privilege escalation prevention, S-02 database fail-fast & bootstrap-admin script, S-03/S-05 environment validation & OTP security, S-06 session family rotation & token verification, S-10/S-11/S-14 leak prevention & CSP, S-16 admin lockout, S-17 OTP provider factory).

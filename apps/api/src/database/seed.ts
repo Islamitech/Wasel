@@ -1,5 +1,4 @@
 import postgres from 'postgres';
-import * as bcrypt from 'bcryptjs';
 import * as dotenv from 'dotenv';
 dotenv.config();
 
@@ -79,25 +78,7 @@ export async function runSeeds() {
       }
     }
 
-    // 5. Seed Default Admin User
-    const adminPasswordHash = await bcrypt.hash('Admin@123456', 10);
-    const [adminUser] = await sql`
-      INSERT INTO users (email, password_hash, full_name, is_active, region_id)
-      VALUES ('admin@wasel.local', ${adminPasswordHash}, 'مدير النظام الأول', true, ${regionId})
-      ON CONFLICT (email) DO UPDATE SET password_hash = EXCLUDED.password_hash
-      RETURNING id;
-    `;
-
-    if (adminUser && adminRole) {
-      await sql`
-        INSERT INTO user_roles (user_id, role_id)
-        VALUES (${adminUser.id}, ${adminRole.id})
-        ON CONFLICT DO NOTHING;
-      `;
-    }
-    console.log('✅ Default Admin seeded (admin@wasel.local / Admin@123456)');
-
-    // 6. Seed Vehicle Types for Region
+    // 5. Seed Vehicle Types for Region
     const vehicleList = [
       { code: 'bicycle', nameAr: 'دراجة هوائية', nameEn: 'Bicycle', maxWeight: 15, maxVolume: 1, order: 1 },
       { code: 'motorcycle', nameAr: 'موتوسيكل', nameEn: 'Motorcycle', maxWeight: 35, maxVolume: 2, order: 2 },

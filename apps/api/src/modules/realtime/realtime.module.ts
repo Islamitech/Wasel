@@ -9,4 +9,3 @@ import { RealtimeController } from './realtime.controller.js';
   exports: [RealtimeGateway, RealtimeService],
 })
 export class RealtimeModule {}
-

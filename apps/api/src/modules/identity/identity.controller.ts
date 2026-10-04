@@ -12,6 +12,7 @@ import {
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { Request } from 'express';
+import { Throttle } from '@nestjs/throttler';
 import { IdentityService } from './identity.service.js';
 import { JwtAuthGuard } from './guards/jwt-auth.guard.js';
 import { PermissionsGuard } from './guards/permissions.guard.js';
@@ -38,6 +39,7 @@ export class IdentityController {
 
   @Post('otp/request')
   @HttpCode(HttpStatus.OK)
+  @Throttle({ default: { limit: 5, ttl: 60000 } })
   @UsePipes(new ZodValidationPipe(RequestOtpSchema))
   @ApiOperation({ summary: 'Request OTP challenge for login/registration' })
   @ApiResponse({ status: 200, description: 'OTP challenge initiated' })
@@ -47,6 +49,7 @@ export class IdentityController {
 
   @Post('otp/verify')
   @HttpCode(HttpStatus.OK)
+  @Throttle({ default: { limit: 5, ttl: 60000 } })
   @UsePipes(new ZodValidationPipe(VerifyOtpSchema))
   @ApiOperation({ summary: 'Verify OTP code and receive session tokens' })
   @ApiResponse({ status: 200, description: 'Authentication successful' })
@@ -65,6 +68,7 @@ export class IdentityController {
 
   @Post('admin/login')
   @HttpCode(HttpStatus.OK)
+  @Throttle({ default: { limit: 5, ttl: 60000 } })
   @UsePipes(new ZodValidationPipe(AdminLoginSchema))
   @ApiOperation({ summary: 'Admin login with email and password' })
   @ApiResponse({ status: 200, description: 'Admin authentication successful' })
@@ -76,6 +80,7 @@ export class IdentityController {
 
   @Post('refresh')
   @HttpCode(HttpStatus.OK)
+  @Throttle({ default: { limit: 5, ttl: 60000 } })
   @UsePipes(new ZodValidationPipe(RefreshTokenSchema))
   @ApiOperation({ summary: 'Rotate refresh token and obtain new access token' })
   @ApiResponse({ status: 200, description: 'Token refreshed' })
@@ -94,7 +99,7 @@ export class IdentityController {
     @Body(new ZodValidationPipe(LogoutSchema)) dto: LogoutDto,
     @CurrentUser() user: any,
   ) {
-    return this.identityService.logout(dto.refreshToken, user.sub, dto.allDevices);
+    return this.identityService.logout(dto.refreshToken, user.sub, dto.allDevices, user.sessionId);
   }
 
   @Get('me')

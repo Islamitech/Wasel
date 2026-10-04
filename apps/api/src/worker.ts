@@ -11,7 +11,15 @@ const logger = new Logger('BullMQWorker');
 
 async function startWorker() {
   const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
-  logger.log(`Connecting BullMQ Worker to Redis at ${redisUrl}...`);
+  let redisHost = 'localhost:6379';
+  try {
+    const parsed = new URL(redisUrl);
+    redisHost = parsed.host;
+  } catch {
+    redisHost = 'configured-host';
+  }
+
+  logger.log(`Connecting BullMQ Worker to Redis host: ${redisHost}...`);
 
   const connection = new (IORedis as any)(redisUrl, {
     maxRetriesPerRequest: null,
@@ -27,7 +35,7 @@ async function startWorker() {
 
   // Initialize database and outbox processor
   const dbService = new DatabaseService();
-  dbService.onModuleInit();
+  await dbService.onModuleInit();
   const outboxProcessor = new OutboxProcessorService(dbService);
 
   // BullMQ Worker for background jobs

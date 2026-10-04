@@ -12,6 +12,11 @@ Entry format:
 ```
 
 <!-- Entries below this line -->
+## [2026-10-04] Phase 1 Critical Security Hardening in apps/api
+- Change: Enforced PublicRegistrationRole enum (customer/driver only) on OTP requests/verifications. Eliminated fallback in-code secrets; centralized token verification across HTTP guards and SSE stream with HS256, issuer, audience, and typ: access claims. Implemented atomic refresh token rotation with cryptographic session family tracking (`family_id`), revoking entire families on token reuse. Removed runtime PGlite fallback in DatabaseService (fail-fast with retry backoff). Replaced default admin seeding with standalone `bootstrap-admin.ts` script enforcing min-16 char credentials and `must_change_password`. Added Redis-backed ThrottlerStorage with IP+account lockout on admin login and OTP attempts. Hardened GlobalExceptionFilter to eliminate SQL/database error message leakage, and configured Helmet CSP.
+- Reason: Completion of Phase 1: Critical Security Hardening in apps/api according to production readiness plan.
+- Definition impact: updated DEFINITION.md section "Current capabilities"
+
 ## [2026-10-04] Complete Relational Data Model & PostGIS Matching Engine on Supabase
 - Change: Implemented 10 ordered SQL migrations under dedicated schema `app` with 100% RLS default-deny and complete PostgREST public isolation. Built data-driven state machine (`app.status_transitions`), customer-point explicit visit accounting (`app.count_billable_visits`), dynamic pricing formulas (`app.calculate_min_fare`, `app.calculate_final_fare`), PostGIS spatial driver matching (`app.find_eligible_drivers` <50ms on 50 drivers), locked agreement snapshot immutability trigger, partitioned tracking points, production seed (`supabase/seed.sql`), dev seed with 50 synthetic Hadayek al-Ahram captains (`supabase/seed.dev.sql`), automated RLS verification script (`scripts/verify-rls.ts`), SQL and Vitest test suites, Drizzle schema reflection, and architecture documentation (`docs/data-model.md`).
 - Reason: Complete database architecture and spatial dispatch implementation for Wasel platform.

@@ -1,7 +1,5 @@
 import { PGlite } from '@electric-sql/pglite';
 import { drizzle } from 'drizzle-orm/pglite';
-import { eq } from 'drizzle-orm';
-import * as bcrypt from 'bcryptjs';
 import * as path from 'path';
 import * as fs from 'fs';
 import * as schema from './schema/index.js';
@@ -109,32 +107,6 @@ export async function initEmbeddedDatabase(dataDir?: string) {
   }
 
   const db = drizzle(pglite, { schema });
-
-  // 3. Ensure Default Admin User exists for tests/console
-  const existingAdmin = await pglite.query<{ id: string }>('SELECT id FROM app.users WHERE email = $1 LIMIT 1', ['admin@wasel.local']);
-  if (existingAdmin.rows.length === 0) {
-    const passwordHash = await bcrypt.hash('Admin@123456', 10);
-    const [region] = await db.select().from(schema.regions).limit(1);
-    const [adminRole] = await db.select().from(schema.roles).where(eq(schema.roles.name, 'admin')).limit(1);
-
-    const [adminUser] = await db
-      .insert(schema.users)
-      .values({
-        email: 'admin@wasel.local',
-        passwordHash,
-        fullName: 'مدير النظام الأول',
-        regionId: region?.id,
-        isActive: true,
-      })
-      .returning();
-
-    if (adminRole && adminUser) {
-      await db.insert(schema.userRoles).values({
-        userId: adminUser.id,
-        roleId: adminRole.id,
-      });
-    }
-  }
 
   return { pglite, db };
 }

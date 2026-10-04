@@ -18,7 +18,8 @@ export class GlobalExceptionFilter implements ExceptionFilter {
     const response = ctx.getResponse<Response>();
     const request = ctx.getRequest<Request>();
 
-    const requestId = (request.headers['x-request-id'] as string) || `req-${Date.now()}`;
+    const requestId =
+      (request as any).id || (request.headers['x-request-id'] as string) || `req-${Date.now()}`;
 
     let status = HttpStatus.INTERNAL_SERVER_ERROR;
     let errorCode = ErrorCode.INTERNAL_ERROR;
@@ -28,53 +29,57 @@ export class GlobalExceptionFilter implements ExceptionFilter {
 
     const rawError = exception as any;
 
-    // 1. Check for Database Constraints & Custom SQL Exceptions
+    // 1. Structured SQLSTATE & Constraint matching (prevent internal SQL leak)
     const dbCode = rawError?.code || rawError?.routine;
     const dbHint = rawError?.hint;
+    const constraintName = rawError?.constraint || '';
     const dbMessage = rawError?.message || '';
 
-    if (dbCode === '23514' || dbMessage.includes('check constraint') || dbMessage.includes('check_violation')) {
-      // Dedicated State Machine Transition Guard Check
-      if (dbHint === 'ILLEGAL_TRANSITION' || dbMessage.includes('Illegal status transition for entity')) {
+    if (
+      dbCode === '23514' ||
+      dbMessage.includes('check constraint') ||
+      dbMessage.includes('check_violation')
+    ) {
+      if (dbHint === 'ILLEGAL_TRANSITION' || dbMessage.includes('Illegal status transition')) {
         status = HttpStatus.CONFLICT;
         errorCode = ErrorCode.ILLEGAL_TRANSITION;
         i18nKey = 'errors.state_machine.illegal_transition';
-
-        const match = dbMessage.match(/Illegal status transition for entity (\w+): cannot transition from "([^"]+)" to "([^"]+)"/);
-        if (match) {
-          const [, entity, fromStatus, toStatus] = match;
-          message = `لا يمكن تغيير حالة ${entity} من "${fromStatus}" إلى "${toStatus}"`;
-          details = { entity, fromStatus, toStatus };
-        } else {
-          message = 'الانتقال بين هذه الحالات غير مسموح به في دورة حياة الطلب';
-        }
-      } else if (dbMessage.includes('Agreement terms and snapshot are immutable')) {
+        message = 'الانتقال بين هذه الحالات غير مسموح به في دورة حياة الطلب';
+      } else if (
+        constraintName.includes('immutable') ||
+        dbMessage.includes('Agreement terms and snapshot are immutable')
+      ) {
         status = HttpStatus.CONFLICT;
         errorCode = ErrorCode.AGREEMENT_IMMUTABLE;
         i18nKey = 'errors.agreements.immutable';
         message = 'بنود الاتفاقية والشروط مجمدة ولا يمكن تعديلها بعد التثبيت';
-      } else if (dbMessage.includes('Order cannot have more than') || (rawError?.constraint && rawError.constraint.includes('max_stops'))) {
+      } else if (
+        constraintName.includes('max_stops') ||
+        dbMessage.includes('max_stops') ||
+        dbMessage.includes('Order cannot have more than')
+      ) {
         status = HttpStatus.BAD_REQUEST;
         errorCode = ErrorCode.MAX_STOPS_EXCEEDED;
         i18nKey = 'errors.orders.max_stops_exceeded';
         message = 'تجاوزت الطلبية الحد الأقصى للمحطات المسموح بها';
         details = { constraint: 'max_tasks_per_order' };
       } else {
-        // Standard check violation -> HTTP 400 Validation Error
         status = HttpStatus.BAD_REQUEST;
         errorCode = ErrorCode.VALIDATION_ERROR;
         i18nKey = 'errors.validation.check_violation';
-        const constraintName = rawError?.constraint || 'check_constraint';
-        message = `قيمة الحقل غير مقبولة وتخالف شروط التحقق (${constraintName})`;
-        details = {
-          constraint: constraintName,
-          error: dbMessage,
-        };
+        message = 'قيمة الحقل غير مقبولة وتخالف شروط التحقق';
+        details = { constraint: constraintName || 'check_constraint' };
       }
-    } else if (dbCode === '23505' || dbMessage.includes('unique constraint') || dbMessage.includes('unique_violation')) {
+    } else if (
+      dbCode === '23505' ||
+      dbMessage.includes('unique constraint') ||
+      dbMessage.includes('unique_violation')
+    ) {
       status = HttpStatus.CONFLICT;
-      const constraintName = rawError?.constraint || '';
-      if (constraintName.includes('agreements_active') || dbMessage.includes('idx_agreements_active_per_order')) {
+      if (
+        constraintName.includes('agreements_active') ||
+        dbMessage.includes('idx_agreements_active_per_order')
+      ) {
         errorCode = ErrorCode.ORDER_ALREADY_AGREED;
         i18nKey = 'errors.agreements.already_agreed';
         message = 'تم قبول هذا الطلب وتأكيد الاتفاق مسبقاً مع كابتن آخر';
@@ -87,7 +92,7 @@ export class GlobalExceptionFilter implements ExceptionFilter {
         i18nKey = 'errors.common.conflict';
         message = 'السجل موجود مسبقاً ويتعارض مع البيانات الحالية';
       }
-      details = { constraint: constraintName };
+      details = { constraint: constraintName || undefined };
     } else if (exception instanceof HttpException) {
       status = exception.getStatus();
       const res = exception.getResponse();
@@ -102,8 +107,16 @@ export class GlobalExceptionFilter implements ExceptionFilter {
         details = obj.details || obj.errors || undefined;
       }
     } else if (exception instanceof Error) {
-      message = exception.message;
-      this.logger.error(`Unhandled Exception [${requestId}]: ${exception.message}`, exception.stack);
+      // Unhandled / Internal Server Error - Sanitized generic response, full log on server
+      status = HttpStatus.INTERNAL_SERVER_ERROR;
+      message = 'حدث خطأ داخلي في الخادم';
+      errorCode = ErrorCode.INTERNAL_ERROR;
+      i18nKey = 'errors.common.internal_error';
+      details = undefined;
+      this.logger.error(
+        `Unhandled Internal Exception [${requestId}]: ${exception.message}`,
+        exception.stack,
+      );
     }
 
     const payload = {
@@ -113,7 +126,7 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       i18nKey,
       details,
       timestamp: new Date().toISOString(),
-      path: request.url,
+      path: request.url?.split('?')[0] || request.url,
       requestId,
     };
 
