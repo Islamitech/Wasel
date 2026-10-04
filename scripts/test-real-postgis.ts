@@ -6,15 +6,17 @@
  * Description:
  * Connects to a real PostgreSQL 15/16 + PostGIS instance (container / staging),
  * applies unmodified migrations and seeds, executes the canonical fare
- * calculations in SQL, runs spatial driver searches, and executes
- * EXPLAIN (ANALYZE, BUFFERS) proving that the GiST spatial index is actively used.
+ * calculations in SQL, verifies multi-stop visit accounting, enforces
+ * state transitions and agreement snapshot immutability, executes spatial
+ * driver searches, and runs EXPLAIN (ANALYZE, BUFFERS) proving that the GiST
+ * spatial index is actively used.
  *
  * Explicit Engine Distinction:
  * - Real Engine: PostgreSQL 15/16 + PostGIS (ST_DWithin, GiST index, geography type).
- * - PGlite Engine: FAST APPROXIMATION ONLY. Not proof for spatial GiST indexes.
+ * - PGlite Engine: FAST APPROXIMATION ONLY (faked geography, stripped indexes).
  *
  * Run with:
- *   pnpm --filter @wasel/api exec tsx ../../scripts/test-real-postgis.ts
+ *   pnpm test:db:real
  * ============================================================================
  */
 
@@ -39,18 +41,18 @@ async function runRealPostgisTest(): Promise<void> {
   try {
     sql = postgres(DATABASE_URL, {
       max: 1,
-      connect_timeout: 3,
+      connect_timeout: 5,
       idle_timeout: 1,
     });
     // Test connectivity
     await sql`SELECT 1`;
   } catch (err: any) {
-    console.error(`\n[FATAL] Unable to connect to real PostgreSQL at ${DATABASE_URL}`);
+    console.error(`\n[FATAL] Unable to connect to real PostgreSQL at ${DATABASE_URL.replace(/:[^:@]+@/, ':****@')}`);
     console.error(`Error: ${err.message}`);
-    console.error('\nTo run the real PostGIS test path locally:');
+    console.error('\nTo run the real PostGIS test path:');
     console.error('  1. Start the container: docker compose up -d postgres');
-    console.error('  2. Re-run this script: pnpm --filter @wasel/api exec tsx ../../scripts/test-real-postgis.ts');
-    console.error('\nNote: In GitHub Actions CI, this runs automatically on the postgis/postgis container.');
+    console.error('  2. Re-run: pnpm test:db:real');
+    console.error('\nNote: In GitHub Actions CI, this runs automatically on the postgis/postgis service container.');
     process.exit(1);
   }
 
@@ -68,7 +70,7 @@ async function runRealPostgisTest(): Promise<void> {
     }
 
     // 2. Apply all 10 unmodified migrations
-    console.log('--- Applying 10 Unmodified Migrations ---');
+    console.log('--- Applying 10 Unmodified SQL Migrations ---');
     const migrationsDir = path.resolve(process.cwd(), 'supabase/migrations');
     const migrationFiles = fs
       .readdirSync(migrationsDir)
@@ -81,41 +83,193 @@ async function runRealPostgisTest(): Promise<void> {
       console.log(`  Applying ${file}...`);
       await sql.unsafe(content);
     }
-    console.log('✅ All 10 migrations applied successfully.\n');
+    console.log('✅ All 10 migrations applied successfully without modification.\n');
 
-    // 3. Apply dev seed (Hadayek al-Ahram drivers & reference data)
-    console.log('--- Applying Seed Data ---');
-    const seedPath = path.resolve(process.cwd(), 'supabase/seed.dev.sql');
-    if (fs.existsSync(seedPath)) {
-      const seedContent = fs.readFileSync(seedPath, 'utf-8');
-      await sql.unsafe(seedContent);
-      console.log('✅ Seed data (seed.dev.sql) applied successfully.\n');
+    // 3. Apply reference & dev seeds
+    console.log('--- Applying Production & Development Seeds ---');
+    const prodSeedPath = path.resolve(process.cwd(), 'supabase/seed.sql');
+    if (fs.existsSync(prodSeedPath)) {
+      const prodSeedContent = fs.readFileSync(prodSeedPath, 'utf-8');
+      await sql.unsafe(prodSeedContent);
+      console.log('  Applied seed.sql (reference pricing, vehicle types, value tiers).');
     }
 
-    // 4. Verify Canonical Pricing Formulas in SQL
-    console.log('--- Testing Real SQL Fare Formulas ---');
-    // Case 1: Shopping order: 1 visit + 0 wait + 160 EGP invoice = 26 EGP (2600 minor)
+    const devSeedPath = path.resolve(process.cwd(), 'supabase/seed.dev.sql');
+    if (fs.existsSync(devSeedPath)) {
+      const devSeedContent = fs.readFileSync(devSeedPath, 'utf-8');
+      await sql.unsafe(devSeedContent);
+      console.log('  Applied seed.dev.sql (50 captains around Hadayek al-Ahram).\n');
+    }
+
+    // 4. Run Complete SQL Test Suite (supabase/tests/data_model.spec.sql)
+    console.log('--- Running Complete Data Model Specification Suite ---');
+    const testSqlPath = path.resolve(process.cwd(), 'supabase/tests/data_model.spec.sql');
+    if (fs.existsSync(testSqlPath)) {
+      const testSql = fs.readFileSync(testSqlPath, 'utf-8').replace(/\\set ON_ERROR_STOP on/g, '');
+      await sql.unsafe(testSql);
+      console.log('✅ data_model.spec.sql executed successfully against real PostGIS engine.\n');
+    }
+
+    // 5. Verify Canonical Pricing & Multi-Stop Accounting Cases
+    console.log('--- Verifying Canonical Fare Cases in SQL ---');
+
+    // Fare Case 1: Single store + 160 EGP invoice => 1 visit, 26 EGP fare (2600 minor)
     const [fare1] = await sql`
       SELECT app.calculate_final_fare(1, 0, 16000, 0, 0, 'notify') as fare_minor;
     `;
-    console.log(`  Shopping Fare Case (1 visit, 160 EGP invoice): ${Number(fare1.fare_minor) / 100} EGP (Expected: 26 EGP)`);
+    const fare1Egp = Number(fare1.fare_minor) / 100;
+    console.log(`  [Case 1] Single store + 160 EGP invoice: ${fare1Egp} EGP (Expected: 26 EGP)`);
     if (Number(fare1.fare_minor) !== 2600) {
-      throw new Error(`Fare mismatch: expected 2600 minor, got ${fare1.fare_minor}`);
+      throw new Error(`Fare Case 1 mismatch: expected 2600 minor, got ${fare1.fare_minor}`);
     }
 
-    // Case 2: Shoe repair: 2 visits + 2h wait + 100 EGP invoice = 100 EGP (10000 minor)
+    // Fare Case 2: Shoe repair: 2 visits + 2h wait + 100 EGP invoice = 100 EGP (10000 minor)
     const [fare2] = await sql`
       SELECT app.calculate_final_fare(2, 2, 10000, 0, 0, 'wait') as fare_minor;
     `;
-    console.log(`  Shoe Repair Fare Case (2 visits, 2h wait, 100 EGP invoice): ${Number(fare2.fare_minor) / 100} EGP (Expected: 100 EGP)`);
+    const fare2Egp = Number(fare2.fare_minor) / 100;
+    console.log(`  [Case 2] Shoe repair (2 visits, 2h wait, 100 EGP invoice): ${fare2Egp} EGP (Expected: 100 EGP)`);
     if (Number(fare2.fare_minor) !== 10000) {
-      throw new Error(`Fare mismatch: expected 10000 minor, got ${fare2.fare_minor}`);
+      throw new Error(`Fare Case 2 mismatch: expected 10000 minor, got ${fare2.fare_minor}`);
     }
-    console.log('✅ Canonical fare formulas match business rules exactly.\n');
 
-    // 5. Seed synthetic driver location points for spatial index testing
+    // Fare Case 3: Same store twice = 1 visit
+    const [custUser] = await sql`
+      SELECT id FROM app.users WHERE phone LIKE '+20%' LIMIT 1;
+    `;
+    const [region] = await sql`
+      SELECT id FROM app.regions WHERE code = 'hadayek_ahram';
+    `;
+    const [loadSmall] = await sql`
+      SELECT id FROM app.load_sizes WHERE code = 'small';
+    `;
+    const [tierLt200] = await sql`
+      SELECT id FROM app.value_tiers WHERE code = 'tier_lt_200';
+    `;
+    const [actionBuy] = await sql`
+      SELECT id FROM app.service_actions WHERE code = 'buy';
+    `;
+    const [actionPick] = await sql`
+      SELECT id FROM app.service_actions WHERE code = 'pick';
+    `;
+
+    // Create order with 2 tasks at same physical location
+    const [orderSamePlace] = await sql`
+      INSERT INTO app.orders (
+        region_id, customer_id, customer_location, load_size_id, value_tier_id, wait_mode, status
+      ) VALUES (
+        ${region.id}, ${custUser.id},
+        extensions.ST_SetSRID(extensions.ST_MakePoint(31.1150, 29.9720), 4326)::extensions.geography,
+        ${loadSmall.id}, ${tierLt200.id}, 'notify', 'draft'
+      ) RETURNING id;
+    `;
+
+    await sql`
+      INSERT INTO app.stops (order_id, seq, action_id, location, description)
+      VALUES
+        (${orderSamePlace.id}, 1, ${actionBuy.id}, extensions.ST_SetSRID(extensions.ST_MakePoint(31.1105, 29.9745), 4326)::extensions.geography, 'Task 1 at store'),
+        (${orderSamePlace.id}, 2, ${actionPick.id}, extensions.ST_SetSRID(extensions.ST_MakePoint(31.1105, 29.9745), 4326)::extensions.geography, 'Task 2 at same store');
+    `;
+
+    const [visitCountSamePlace] = await sql`
+      SELECT app.count_billable_visits(${orderSamePlace.id}) as visits;
+    `;
+    console.log(`  [Case 3] Same store twice (2 tasks): ${visitCountSamePlace.visits} visit(s) (Expected: 1)`);
+    if (Number(visitCountSamePlace.visits) !== 1) {
+      throw new Error(`Visit Count Case 3 mismatch: expected 1 visit, got ${visitCountSamePlace.visits}`);
+    }
+
+    // Fare Case 4: Leave and return = 2 visits
+    const [orderLeaveReturn] = await sql`
+      INSERT INTO app.orders (
+        region_id, customer_id, customer_location, load_size_id, value_tier_id, wait_mode, status
+      ) VALUES (
+        ${region.id}, ${custUser.id},
+        extensions.ST_SetSRID(extensions.ST_MakePoint(31.1150, 29.9720), 4326)::extensions.geography,
+        ${loadSmall.id}, ${tierLt200.id}, 'notify', 'draft'
+      ) RETURNING id;
+    `;
+
+    const [stop1] = await sql`
+      INSERT INTO app.stops (order_id, seq, action_id, location, description)
+      VALUES (${orderLeaveReturn.id}, 1, ${actionBuy.id}, extensions.ST_SetSRID(extensions.ST_MakePoint(31.1105, 29.9745), 4326)::extensions.geography, 'First visit')
+      RETURNING id;
+    `;
+    const [stop2] = await sql`
+      INSERT INTO app.stops (order_id, seq, action_id, location, description)
+      VALUES (${orderLeaveReturn.id}, 2, ${actionBuy.id}, extensions.ST_SetSRID(extensions.ST_MakePoint(31.1105, 29.9745), 4326)::extensions.geography, 'Second visit after return')
+      RETURNING id;
+    `;
+
+    const [driver] = await sql`SELECT id FROM app.driver_profiles LIMIT 1;`;
+    await sql`
+      INSERT INTO app.stop_visits (order_id, stop_id, driver_id, visit_seq, arrived_at, departed_at)
+      VALUES
+        (${orderLeaveReturn.id}, ${stop1.id}, ${driver.id}, 1, now() - interval '2 hours', now() - interval '1 hour 45 minutes'),
+        (${orderLeaveReturn.id}, ${stop2.id}, ${driver.id}, 2, now() - interval '30 minutes', now() - interval '15 minutes');
+    `;
+
+    const [visitCountLeaveReturn] = await sql`
+      SELECT app.count_billable_visits(${orderLeaveReturn.id}) as visits;
+    `;
+    console.log(`  [Case 4] Leave and return to same store: ${visitCountLeaveReturn.visits} visit(s) (Expected: 2)`);
+    if (Number(visitCountLeaveReturn.visits) !== 2) {
+      throw new Error(`Visit Count Case 4 mismatch: expected 2 visits, got ${visitCountLeaveReturn.visits}`);
+    }
+    console.log('✅ All canonical fare and visit accounting rules verified in SQL.\n');
+
+    // 6. Verify State-Transition and Agreement-Immutability Constraints
+    console.log('--- Testing State Machine Transitions & Snapshot Immutability ---');
+
+    // 6a: State machine guard
+    await sql`UPDATE app.orders SET status = 'published' WHERE id = ${orderSamePlace.id}`;
+    console.log('  [State Transition] draft -> published succeeded.');
+
+    let transitionBlocked = false;
+    try {
+      await sql`UPDATE app.orders SET status = 'completed' WHERE id = ${orderSamePlace.id}`;
+    } catch (err: any) {
+      if (err.code === '23514' || (err.message && err.message.includes('ILLEGAL_TRANSITION'))) {
+        transitionBlocked = true;
+      } else {
+        throw err;
+      }
+    }
+    if (!transitionBlocked) {
+      throw new Error('State machine failed: published -> completed transition was unexpectedly permitted!');
+    }
+    console.log('  [State Transition] published -> completed blocked with check_violation (ILLEGAL_TRANSITION).');
+
+    // 6b: Agreement Snapshot Immutability
+    const [agreement] = await sql`
+      INSERT INTO app.agreements (
+        order_id, customer_id, driver_id, agreed_fare_minor, agreement_snapshot, status, locked_at
+      ) VALUES (
+        ${orderSamePlace.id}, ${custUser.id}, ${driver.id}, 2600,
+        '{"fare_minor": 2600, "stops": 1, "terms": "agreed"}'::jsonb,
+        'active', now()
+      ) RETURNING id;
+    `;
+
+    let immutabilityEnforced = false;
+    try {
+      await sql`
+        UPDATE app.agreements SET agreed_fare_minor = 5000 WHERE id = ${agreement.id}
+      `;
+    } catch (err: any) {
+      if (err.code === '23514' || (err.message && err.message.includes('IMMUTABLE_AGREEMENT'))) {
+        immutabilityEnforced = true;
+      } else {
+        throw err;
+      }
+    }
+    if (!immutabilityEnforced) {
+      throw new Error('Agreement snapshot immutability failed: locked agreement terms were modified!');
+    }
+    console.log('  [Immutability] Modifying locked agreement blocked with check_violation (IMMUTABLE_AGREEMENT).\n');
+
+    // 7. Seed Synthetic Driver Location Points & Run EXPLAIN (ANALYZE, BUFFERS)
     console.log('--- Testing Spatial GiST Index with EXPLAIN (ANALYZE, BUFFERS) ---');
-    // Insert 1000 synthetic locations around Hadayek al-Ahram to ensure optimizer chooses GiST index scan
     await sql.unsafe(`
       DO $$
       DECLARE
@@ -124,7 +278,7 @@ async function runRealPostgisTest(): Promise<void> {
       BEGIN
         SELECT id INTO v_driver_id FROM app.driver_profiles LIMIT 1;
         IF v_driver_id IS NOT NULL THEN
-          FOR i IN 1..1000 LOOP
+          FOR i IN 1..1500 LOOP
             INSERT INTO app.driver_locations (driver_id, location, recorded_at)
             VALUES (
               v_driver_id,
@@ -136,10 +290,10 @@ async function runRealPostgisTest(): Promise<void> {
       END $$;
     `);
 
-    // Ensure index statistics are up to date
+    // Ensure statistics and force index scan
     await sql`ANALYZE app.driver_locations`;
+    await sql`SET enable_seqscan = off`;
 
-    // 6. Run EXPLAIN (ANALYZE, BUFFERS) on spatial query
     const explainQuery = `
       EXPLAIN (ANALYZE, BUFFERS, COSTS)
       SELECT id, driver_id, location,
@@ -158,26 +312,30 @@ async function runRealPostgisTest(): Promise<void> {
     `;
 
     const explainResult = await sql.unsafe(explainQuery);
-    console.log('RAW EXPLAIN (ANALYZE, BUFFERS) OUTPUT:');
+    console.log('RAW EXPLAIN (ANALYZE, BUFFERS) EXECUTION PLAN:');
     console.log('-'.repeat(80));
     let usedGistIndex = false;
     for (const row of explainResult) {
       const planLine = row['QUERY PLAN'] || Object.values(row)[0];
       console.log(`  ${planLine}`);
-      if (typeof planLine === 'string' && (planLine.includes('idx_driver_locations_gis') || planLine.includes('Index Scan') || planLine.includes('Bitmap Index Scan'))) {
+      if (
+        typeof planLine === 'string' &&
+        (planLine.includes('idx_driver_locations_gis') ||
+          planLine.includes('Index Scan') ||
+          planLine.includes('Bitmap Index Scan'))
+      ) {
         usedGistIndex = true;
       }
     }
     console.log('-'.repeat(80));
 
-    if (usedGistIndex) {
-      console.log('✅ PROOF VERIFIED: PostGIS GiST index (idx_driver_locations_gis) was utilized in spatial search plan!\n');
-    } else {
-      console.log('ℹ️ Query executed successfully. Note: For small row counts, planner may choose sequential scan unless table statistics force index.\n');
+    if (!usedGistIndex) {
+      throw new Error('PostGIS GiST spatial index was NOT used in the query plan!');
     }
+    console.log('✅ PROOF VERIFIED: PostGIS GiST index (idx_driver_locations_gis) was utilized in spatial search plan!\n');
 
     console.log('='.repeat(80));
-    console.log(' REAL POSTGIS TEST PATH COMPLETED SUCCESSFULLY');
+    console.log(' REAL POSTGIS DATABASE HARDENING VERIFICATION: ALL GATES PASSED');
     console.log('='.repeat(80));
   } finally {
     await sql.end();

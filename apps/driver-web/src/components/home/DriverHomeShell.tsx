@@ -451,7 +451,7 @@ export const DriverHomeShell: React.FC<DriverHomeShellProps> = ({
     try {
       await apiClient.agreements.arriveAtStop(agreementId, currentStop.id, payload);
       dispatch({ type: 'ARRIVE_AT_STOP' });
-    } catch (err) {
+    } catch {
       // Resilient fallback: enqueue offline
       await enqueueOfflineAction({
         type: 'ARRIVE',
@@ -631,7 +631,7 @@ export const DriverHomeShell: React.FC<DriverHomeShellProps> = ({
 
       dispatch({ type: 'COMPLETE_AGREEMENT_SUCCESS', settlement });
       saveTodayEarnings(stateRef.current.todayEarnings);
-    } catch (err: any) {
+    } catch {
       // Resilient fallback
       const settlement = {
         visitsFeeMinor: 1000,

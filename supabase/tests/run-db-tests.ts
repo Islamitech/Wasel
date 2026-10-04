@@ -1,13 +1,17 @@
 /**
  * ============================================================================
- * Wasel Real Postgres Execution Test Runner
+ * Wasel In-Memory Postgres (PGlite Fast Approximation) Test Runner
  * File: supabase/tests/run-db-tests.ts
  *
- * Runs all 10 SQL migrations, seeds, and SQL test suite directly
- * inside the official PostgreSQL 18 WASM engine (PGlite).
+ * Runs SQL migrations, seeds, and SQL test suite directly inside the
+ * PGlite in-memory WASM engine as a FAST LOCAL APPROXIMATION.
+ *
+ * NOTE: PGlite fakes geography as text and bypasses GiST/trigram indexes.
+ * It is NOT proof for real PostGIS behavior. Real engine verification
+ * must be run via scripts/test-real-postgis.ts against PostgreSQL 15/16 + PostGIS.
  *
  * Run:
- *   pnpm --filter @wasel/api exec tsx ../../supabase/tests/run-db-tests.ts
+ *   pnpm test:db:fast
  * ============================================================================
  */
 
@@ -17,14 +21,14 @@ import * as path from 'path';
 
 async function main() {
   console.log('='.repeat(78));
-  console.log(' WASEL REAL POSTGRESQL 18 EXECUTION TEST RUN');
+  console.log(' WASEL PGLITE FAST APPROXIMATION TEST RUN (WASM - NOT POSTGIS PROOF)');
   console.log('='.repeat(78));
 
   const db = new PGlite();
 
   // 1. Verify Postgres Engine Version
   const verRes = await db.query<any>('SELECT version();');
-  console.log(' Engine:', verRes.rows[0].version.split('\n')[0]);
+  console.log(' Engine:', verRes.rows[0].version.split('\n')[0] + ' [PGlite WASM Approximation - GiST Bypassed]');
   console.log('-'.repeat(78));
 
   // 2. Setup extensions schema & spatial polyfills for standalone execution
@@ -213,7 +217,7 @@ async function main() {
   console.log(`     - Unauthorized public/anon EXECUTE grants: ${securityAudit.rows[0].unauth_executes} (0 expected)`);
 
   console.log('='.repeat(78));
-  console.log(` [SUCCESS] All DB tests, fare cases, and spatial queries passed in ${elapsedMs} ms against PostgreSQL 18.`);
+  console.log(` [SUCCESS] All DB tests, fare cases, and spatial queries passed in ${elapsedMs} ms against PGlite (WASM fast approximation - NOT proof for PostGIS GiST indexes).`);
   console.log('='.repeat(78));
 }
 
