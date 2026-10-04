@@ -25,6 +25,23 @@ const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const DATABASE_URL = process.env.DATABASE_URL;
+const STAGING_PROJECT_REF = process.env.STAGING_PROJECT_REF;
+
+const ALLOWED_STAGING_REFS = ['onlaqufiabrrmkzvvtyu'];
+
+function maskUrl(url?: string): string {
+  if (!url) return 'MISSING';
+  try {
+    const u = new URL(url);
+    const hostParts = u.host.split('.');
+    if (hostParts.length > 2) {
+      return `${u.protocol}//${hostParts[0].slice(0, 4)}****.${hostParts.slice(1).join('.')}`;
+    }
+    return `${u.protocol}//${u.host}`;
+  } catch {
+    return '****';
+  }
+}
 
 interface AuditFailure {
   category: 'PRECHECK' | 'POSITIVE_CONTROL' | 'TABLE_READ' | 'TABLE_WRITE' | 'RPC' | 'STORAGE';
@@ -98,16 +115,33 @@ async function runStrictRlsAudit(): Promise<void> {
   console.log(' WASEL ZERO-TRUST RLS & POSTGREST AUDIT (STRICT FAIL-CLOSED)');
   console.log('='.repeat(80));
 
-  // Step 1: Check environment
-  if (!SUPABASE_URL || !SUPABASE_ANON_KEY || !SUPABASE_SERVICE_ROLE_KEY) {
-    console.error('\n[FAIL-CLOSED] Missing required Supabase environment variables!');
+  // Step 1: Check environment & Staging Guardrails
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY || !SUPABASE_SERVICE_ROLE_KEY || !STAGING_PROJECT_REF) {
+    console.error('\n[FAIL-CLOSED FATAL] Missing required Supabase environment variables!');
     console.error('All of the following must be set with no defaults:');
-    console.error(`  - SUPABASE_URL: ${SUPABASE_URL ? '✓' : 'MISSING'}`);
-    console.error(`  - SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY ? '✓' : 'MISSING'}`);
-    console.error(`  - SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY ? '✓' : 'MISSING'}`);
+    console.error(`  - SUPABASE_URL: ${SUPABASE_URL ? maskUrl(SUPABASE_URL) : 'MISSING'}`);
+    console.error(`  - SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY ? 'PRESENT (MASKED)' : 'MISSING'}`);
+    console.error(`  - SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY ? 'PRESENT (MASKED)' : 'MISSING'}`);
+    console.error(`  - STAGING_PROJECT_REF: ${STAGING_PROJECT_REF ? STAGING_PROJECT_REF : 'MISSING'}`);
     console.error('\nExiting with code 1.\n');
     process.exit(1);
   }
+
+  // Refuse to run unless project ref is in allowlist
+  if (!ALLOWED_STAGING_REFS.includes(STAGING_PROJECT_REF)) {
+    console.error(`\n[FAIL-CLOSED FATAL] STAGING_PROJECT_REF "${STAGING_PROJECT_REF}" is not in the allowed staging list (${ALLOWED_STAGING_REFS.join(', ')})!`);
+    console.error('Aborting immediately to protect non-staging/production environments.');
+    process.exit(1);
+  }
+
+  // Abort unless SUPABASE_URL contains the exact STAGING_PROJECT_REF
+  if (!SUPABASE_URL.includes(STAGING_PROJECT_REF)) {
+    console.error(`\n[FAIL-CLOSED FATAL] SUPABASE_URL does not contain the exact allowed STAGING_PROJECT_REF ("${STAGING_PROJECT_REF}")!`);
+    console.error('Target URL does not match staging ref. Aborting immediately to prevent accidental execution against production.');
+    process.exit(1);
+  }
+
+  console.log(` Target Staging Project: ${maskUrl(SUPABASE_URL)} (Ref: ${STAGING_PROJECT_REF})`);
 
   const failures: AuditFailure[] = [];
 
@@ -135,12 +169,14 @@ async function runStrictRlsAudit(): Promise<void> {
   // Step 3: Positive Control (Deliberately Exposed Test Table Leak Detection)
   console.log('\n[PHASE 2/5] Positive Control: Verifying leak detection capability...');
   if (!DATABASE_URL) {
-    console.warn(' [WARN] DATABASE_URL not set; testing HTTP positive control on invalid schema route.');
+    console.warn(' [WARN] DATABASE_URL not set; skipping direct DB positive control probe.');
   } else {
     const tableName = '__wasel_positive_control_probe';
     let dbClient: postgres.Sql | null = null;
+    let probeTableCreated = false;
+
     try {
-      dbClient = postgres(DATABASE_URL, { max: 1, connect_timeout: 3 });
+      dbClient = postgres(DATABASE_URL, { max: 1, connect_timeout: 5 });
 
       // Create deliberately un-RLS table with a secret row
       await dbClient.unsafe(`
@@ -150,6 +186,7 @@ async function runStrictRlsAudit(): Promise<void> {
         INSERT INTO public.${tableName} (secret_probe) VALUES ('POSITIVE_CONTROL_LEAK_CONFIRMED');
         GRANT SELECT ON public.${tableName} TO anon, public, authenticated;
       `);
+      probeTableCreated = true;
 
       // Probe with anon key
       const probeRes = await fetch(`${SUPABASE_URL.replace(/\/+$/, '')}/rest/v1/${tableName}?select=*`, {
@@ -178,14 +215,18 @@ async function runStrictRlsAudit(): Promise<void> {
         console.log(' [PASS] Positive control verified: Auditor successfully detected deliberate un-RLS table leak.');
       }
     } catch (err: any) {
-      console.warn(` [POSITIVE CONTROL NOTE] Direct DB setup skipped (${err.message}). Proceeding with strict audit.`);
+      console.warn(` [POSITIVE CONTROL NOTE] Direct DB setup error (${err.message}). Proceeding with strict audit.`);
     } finally {
       if (dbClient) {
         try {
-          await dbClient.unsafe(`DROP TABLE IF EXISTS public.${tableName};`);
+          if (probeTableCreated) {
+            console.log(` [CLEANUP] Dropping probe table public.${tableName}...`);
+            await dbClient.unsafe(`DROP TABLE IF EXISTS public.${tableName};`);
+            console.log(' [CLEANUP] Probe table successfully dropped.');
+          }
           await dbClient.end();
-        } catch {
-          // ignore cleanup
+        } catch (cleanupErr: any) {
+          console.error(` [CLEANUP WARNING] Failed to drop probe table in finally block: ${cleanupErr.message}`);
         }
       }
     }
