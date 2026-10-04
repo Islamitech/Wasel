@@ -4,21 +4,23 @@
   --color-ok: #1f8a5b;
   --color-sheet: #ffffff;
   --color-chip: #eef3ef;
+  --color-border: #e5e7eb;
   --font-family: 'Cairo', 'Tahoma', system-ui, -apple-system, sans-serif;
   --radius-sm: 14px;
   --radius-md: 18px;
   --radius-lg: 24px;
-  --min-touch-target: 52px;
+  --min-touch-target: 56px;
   --safe-top: env(safe-area-inset-top, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
   --direction: rtl;
 }
 
 @media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
+  :root:not([data-theme="light"]):not([data-theme="sunlight"]) {
     --color-ink: #eaf2ee;
     --color-sheet: #17211e;
     --color-chip: #22302b;
+    --color-border: #2e3e38;
   }
 }
 
@@ -26,12 +28,25 @@
   --color-ink: #eaf2ee;
   --color-sheet: #17211e;
   --color-chip: #22302b;
+  --color-border: #2e3e38;
 }
 
 [data-theme="light"] {
   --color-ink: #12302b;
   --color-sheet: #ffffff;
   --color-chip: #eef3ef;
+  --color-border: #e5e7eb;
+}
+
+/* High-contrast, sunlight-readable mode for drivers outdoors */
+[data-theme="sunlight"] {
+  --color-ink: #000000;
+  --color-sheet: #ffffff;
+  --color-chip: #f1f5f9;
+  --color-accent: #b45309;
+  --color-ok: #15803d;
+  --color-border: #000000;
+  filter: contrast(1.15);
 }
 
 * {
@@ -59,4 +74,29 @@ body {
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
   }
+}
+
+/* Map marker animations & pulses */
+@keyframes driverPulse {
+  0% {
+    transform: scale(0.95);
+    box-shadow: 0 0 0 0 rgba(31, 138, 91, 0.7);
+  }
+  70% {
+    transform: scale(1.05);
+    box-shadow: 0 0 0 14px rgba(31, 138, 91, 0);
+  }
+  100% {
+    transform: scale(0.95);
+    box-shadow: 0 0 0 0 rgba(31, 138, 91, 0);
+  }
+}
+
+.wasel-marker-driver {
+  animation: driverPulse 2s infinite ease-in-out;
+}
+
+.wasel-marker-stop.active {
+  transform: scale(1.15);
+  box-shadow: 0 0 0 6px rgba(242, 162, 12, 0.4);
 }

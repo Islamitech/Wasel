@@ -2,7 +2,7 @@ import React from 'react';
 import { Spinner } from './Spinner.js';
 
 export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
-  variant?: 'primary' | 'secondary' | 'outline' | 'danger';
+  variant?: 'primary' | 'secondary' | 'outline' | 'danger' | 'accent' | 'success';
   isLoading?: boolean;
   children: React.ReactNode;
 }
@@ -16,13 +16,13 @@ export const Button: React.FC<ButtonProps> = ({
   ...props
 }) => {
   const baseStyle: React.CSSProperties = {
-    minHeight: 'var(--min-touch-target, 52px)',
-    height: '52px',
-    padding: '0 20px',
+    minHeight: 'var(--min-touch-target, 56px)',
+    height: '56px',
+    padding: '0 24px',
     borderRadius: 'var(--radius-md, 18px)',
     fontFamily: 'var(--font-family)',
-    fontSize: '1rem',
-    fontWeight: 600,
+    fontSize: '1.05rem',
+    fontWeight: 700,
     display: 'inline-flex',
     alignItems: 'center',
     justifyContent: 'center',
@@ -32,6 +32,7 @@ export const Button: React.FC<ButtonProps> = ({
     transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
     width: '100%',
     opacity: disabled || isLoading ? 0.6 : 1,
+    boxShadow: '0 2px 6px rgba(0,0,0,0.08)',
     ...style,
   };
 
@@ -46,11 +47,19 @@ export const Button: React.FC<ButtonProps> = ({
     },
     outline: {
       backgroundColor: 'transparent',
-      border: '1.5px solid var(--color-ink, #12302b)',
+      border: '2px solid var(--color-ink, #12302b)',
       color: 'var(--color-ink, #12302b)',
     },
     danger: {
       backgroundColor: '#d32f2f',
+      color: '#ffffff',
+    },
+    accent: {
+      backgroundColor: 'var(--color-accent, #f2a20c)',
+      color: '#12302b',
+    },
+    success: {
+      backgroundColor: 'var(--color-ok, #1f8a5b)',
       color: '#ffffff',
     },
   };
@@ -61,7 +70,7 @@ export const Button: React.FC<ButtonProps> = ({
       style={{ ...baseStyle, ...variantStyles[variant] }}
       {...props}
     >
-      {isLoading ? <Spinner size={20} color="currentColor" /> : children}
+      {isLoading ? <Spinner size={22} color="currentColor" /> : children}
     </button>
   );
 };

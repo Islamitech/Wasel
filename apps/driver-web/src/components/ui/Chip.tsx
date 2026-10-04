@@ -2,7 +2,7 @@ import React from 'react';
 
 export interface ChipProps {
   label: string;
-  variant?: 'default' | 'accent' | 'ok';
+  variant?: 'default' | 'accent' | 'ok' | 'danger';
   icon?: React.ReactNode;
 }
 
@@ -19,6 +19,10 @@ export const Chip: React.FC<ChipProps> = ({ label, variant = 'default', icon }) 
     ok: {
       backgroundColor: 'rgba(31, 138, 91, 0.15)',
       color: 'var(--color-ok, #1f8a5b)',
+    },
+    danger: {
+      backgroundColor: 'rgba(217, 45, 32, 0.15)',
+      color: '#d92d20',
     },
   };
 
