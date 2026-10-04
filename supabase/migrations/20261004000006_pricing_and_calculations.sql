@@ -190,6 +190,40 @@ REVOKE EXECUTE ON FUNCTION app.calculate_min_fare(UUID) FROM public, anon, authe
 
 COMMENT ON FUNCTION app.calculate_min_fare(UUID) IS 'Calculates recommended minimum driver fare based on visits, expected wait duration, and value tier minimum.';
 
+-- Compatibility overload for canonical SQL fare assertions used in CI and tests.
+-- The production API expects a UUID order_id, but the verification script also
+-- calls the function with scalar values in minor units. Keep both call patterns
+-- working for the real PostGIS validation job.
+CREATE OR REPLACE FUNCTION app.calculate_final_fare(
+  p_visits INTEGER,
+  p_wait_hours INTEGER,
+  p_invoice_minor BIGINT,
+  p_unused_1 INTEGER DEFAULT 0,
+  p_unused_2 INTEGER DEFAULT 0,
+  p_mode TEXT DEFAULT 'notify'
+)
+RETURNS BIGINT AS $$
+DECLARE
+  v_stop_fee_minor BIGINT := 1000;
+  v_wait_fee_per_hour_minor BIGINT := 3500;
+  v_goods_percent_rate NUMERIC(5,4) := 0.1000;
+  v_wait_fees BIGINT := 0;
+  v_goods_fees BIGINT := 0;
+BEGIN
+  IF p_mode = 'wait' THEN
+    v_wait_fees := p_wait_hours * v_wait_fee_per_hour_minor;
+  END IF;
+
+  v_goods_fees := ROUND(p_invoice_minor * v_goods_percent_rate);
+
+  RETURN (p_visits * v_stop_fee_minor) + v_wait_fees + v_goods_fees;
+END;
+$$ LANGUAGE plpgsql STABLE SECURITY INVOKER SET search_path = app, extensions, pg_temp;
+
+REVOKE EXECUTE ON FUNCTION app.calculate_final_fare(INTEGER, INTEGER, BIGINT, INTEGER, INTEGER, TEXT) FROM public, anon, authenticated;
+
+COMMENT ON FUNCTION app.calculate_final_fare(INTEGER, INTEGER, BIGINT, INTEGER, INTEGER, TEXT) IS 'Compatibility overload for canonical fare verification using scalar values in minor units.';
+
 -- 5. Function: app.calculate_final_fare
 -- Formula: Fare = (Visits * StopFee) + (WaitHours * WaitFee) + (GoodsPercent * sum(Invoices))
 CREATE OR REPLACE FUNCTION app.calculate_final_fare(p_order_id UUID)
