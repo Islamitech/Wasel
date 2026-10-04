@@ -123,10 +123,11 @@ export interface OfflineAction {
   method: 'POST' | 'PATCH' | 'PUT';
   payload?: any;
   timestamp: number;
-  status: 'pending' | 'processing' | 'failed' | 'completed';
+  status: 'pending' | 'processing' | 'failed' | 'completed' | 'dead';
   retryCount: number;
   errorMessage?: string;
 }
+
 
 export interface DriverAppState {
   sheetState: DriverSheetState;

@@ -4,7 +4,7 @@ import { apiClient } from '../../api.js';
 import { Button } from '../ui/Button.js';
 import { Field } from '../ui/Field.js';
 import { Toast } from '../ui/Toast.js';
-import { UserRole } from '@wasel/shared';
+import { UserRole, formatAuthError } from '@wasel/shared';
 
 interface DriverAuthScreenProps {
   onSuccess: (user: any) => void;
@@ -44,11 +44,10 @@ export const DriverAuthScreen: React.FC<DriverAuthScreenProps> = ({ onSuccess })
       setToast({ message: res.message || 'تم إرسال رمز التحقق', type: 'ok' });
       setCooldown(res.resendCooldownSeconds || 60);
       setStep('otp');
-    } catch {
-      // Seamless fallback: If API is offline or not yet connected, continue seamlessly
-      setToast({ message: 'تم إرسال رمز التحقق بنجاح', type: 'ok' });
-      setCooldown(60);
-      setStep('otp');
+    } catch (err: any) {
+      const errorMsg = formatAuthError(err);
+      setError(errorMsg);
+      setToast({ message: errorMsg, type: 'error' });
     } finally {
       setLoading(false);
     }
@@ -71,39 +70,10 @@ export const DriverAuthScreen: React.FC<DriverAuthScreenProps> = ({ onSuccess })
       localStorage.setItem('wasel_driver_user', JSON.stringify(res.user));
       setToast({ message: 'مرحباً بك كابتن واصل', type: 'ok' });
       onSuccess(res.user);
-    } catch {
-      // Standalone / Offline fallback: create active captain profile session
-      const fallbackUser = {
-        id: `driver-${phone.slice(-4) || 'demo'}`,
-        phone,
-        fullName: `كابتن واصل (${phone.slice(-4)})`,
-        roles: ['driver'],
-        verificationLevel: 1,
-      };
-      localStorage.setItem('wasel_driver_access_token', 'token_driver_' + Date.now());
-      localStorage.setItem('wasel_driver_refresh_token', 'refresh_driver_' + Date.now());
-      localStorage.setItem('wasel_driver_user', JSON.stringify(fallbackUser));
-
-      // Record in wasel_registered_captains for immediate appearance in Admin Dashboard
-      try {
-        const stored = JSON.parse(localStorage.getItem('wasel_registered_captains') || '[]');
-        stored.unshift({
-          id: fallbackUser.id,
-          name: fallbackUser.fullName,
-          phone,
-          vehicle: 'موتوسيكل',
-          level: 1,
-          documentName: 'بطاقة + صورة + رخصة',
-          status: 'pending',
-          registeredAt: new Date().toISOString(),
-        });
-        localStorage.setItem('wasel_registered_captains', JSON.stringify(stored));
-      } catch {
-        // ignore
-      }
-
-      setToast({ message: 'مرحباً بك كابتن واصل', type: 'ok' });
-      onSuccess(fallbackUser);
+    } catch (err: any) {
+      const errorMsg = formatAuthError(err);
+      setError(errorMsg);
+      setToast({ message: errorMsg, type: 'error' });
     } finally {
       setLoading(false);
     }

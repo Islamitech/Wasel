@@ -17,26 +17,6 @@ const queryClient = new QueryClient({
 
 export const App: React.FC = () => {
   const [currentUser, setCurrentUser] = useState<any>(() => {
-    // STRICT GUARD: Test backdoor only exists in test mode (dead-code-eliminated in production)
-    if (import.meta.env.MODE === 'test') {
-      try {
-        const params =
-          typeof window !== 'undefined'
-            ? new URLSearchParams(window.location.search)
-            : null;
-        if (params && (params.get('test_session') === 'true' || params.get('state'))) {
-          return {
-            id: 'test-driver-id',
-            phone: '01012345678',
-            fullName: 'كابتن تجريبي',
-            roles: ['driver'],
-          };
-        }
-      } catch {
-        // ignore
-      }
-    }
-
     try {
       const stored = localStorage.getItem('wasel_driver_user');
       const token = localStorage.getItem('wasel_driver_access_token');
@@ -48,6 +28,7 @@ export const App: React.FC = () => {
     }
     return null;
   });
+
 
   return (
     <ErrorBoundary>

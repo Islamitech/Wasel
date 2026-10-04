@@ -52,6 +52,33 @@ describe('Driver Error Taxonomy & Recovery Actions Tests', () => {
     expect(uiError.actionType).toBe('go_waiting');
   });
 
+  it('handles 401 Unauthorized by directing user to login screen', () => {
+    const error401 = { statusCode: 401, message: 'Unauthorized session' };
+    const uiError = getDriverUiError(error401);
+
+    expect(uiError.arabicMessage).toContain('انتهت صلاحية تسجيل الدخول');
+    expect(uiError.recoveryActionLabel).toBe('تسجيل الدخول');
+    expect(uiError.actionType).toBe('login');
+  });
+
+  it('handles 5xx Server Error by providing technical notice and retry action', () => {
+    const error500 = { statusCode: 500, message: 'Internal server fault' };
+    const uiError = getDriverUiError(error500);
+
+    expect(uiError.arabicMessage).toContain('حدث خطأ تقني في الخادم');
+    expect(uiError.recoveryActionLabel).toBe('إعادة المحاولة');
+    expect(uiError.actionType).toBe('retry');
+  });
+
+  it('handles network disconnection by presenting offline queue notice', () => {
+    const networkError = { message: 'Failed to fetch network resource' };
+    const uiError = getDriverUiError(networkError);
+
+    expect(uiError.arabicMessage).toContain('غير متصل بالإنترنت حالياً');
+    expect(uiError.recoveryActionLabel).toBe('حسناً، فهمت');
+    expect(uiError.actionType).toBe('dismiss');
+  });
+
   it('provides safe fallback for unknown errors with a clear retry action', () => {
     const unknownError = { message: 'Something completely unexpected' };
     const uiError = getDriverUiError(unknownError);
@@ -61,3 +88,4 @@ describe('Driver Error Taxonomy & Recovery Actions Tests', () => {
     expect(uiError.actionType).toBe('retry');
   });
 });
+

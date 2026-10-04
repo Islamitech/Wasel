@@ -220,4 +220,24 @@ export class AdminController {
   ) {
     return this.adminService.searchUsers(query, adminId);
   }
+
+  // --- Audit Logs ---
+
+  @Get('audit-logs')
+  @ApiOperation({ summary: 'List system audit logs' })
+  @ApiQuery({ name: 'limit', required: false })
+  @ApiQuery({ name: 'offset', required: false })
+  @ApiQuery({ name: 'entityType', required: false })
+  async getAuditLogs(
+    @Query('limit') limit?: string,
+    @Query('offset') offset?: string,
+    @Query('entityType') entityType?: string,
+  ) {
+    return this.auditService.findLogs(
+      limit ? parseInt(limit, 10) : 50,
+      offset ? parseInt(offset, 10) : 0,
+      entityType,
+    );
+  }
 }
+

@@ -601,6 +601,9 @@ export class WaselApiClient {
     listVerifications: (status?: string) =>
       this.request<any[]>(`/admin/verifications${status ? `?status=${status}` : ''}`),
 
+    getVerificationDocumentUrl: (id: string) =>
+      this.request<{ downloadUrl: string; expiresInSeconds: number }>(`/admin/verifications/${id}/document-url`),
+
     approveVerification: (id: string, levelId?: string) =>
       this.request<any>(`/admin/verifications/${id}/approve`, {
         method: 'POST',
@@ -612,6 +615,14 @@ export class WaselApiClient {
         method: 'POST',
         body: JSON.stringify({ reason }),
       }),
+
+    getAuditLogs: (query: { limit?: number; offset?: number; entityType?: string } = {}) => {
+      const params = new URLSearchParams();
+      if (query.limit) params.set('limit', String(query.limit));
+      if (query.offset) params.set('offset', String(query.offset));
+      if (query.entityType) params.set('entityType', query.entityType);
+      return this.request<any[]>(`/admin/audit-logs?${params.toString()}`);
+    },
 
     searchUsers: (q: string) =>
       this.request<any[]>(`/admin/users?q=${encodeURIComponent(q)}`),

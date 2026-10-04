@@ -13,18 +13,6 @@ export const App: React.FC = () => {
 
   useEffect(() => {
     try {
-      const params = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
-      if (params && (params.get('demo') === 'true' || params.get('test_session') === 'true')) {
-        setCurrentAdmin({
-          id: 'admin-demo-id',
-          email: 'admin@wasel.local',
-          fullName: 'مدير منصة واصل (تجريبي)',
-          roles: ['admin'],
-        });
-        setLoading(false);
-        return;
-      }
-
       const stored = localStorage.getItem('wasel_admin_user');
       const token = localStorage.getItem('wasel_admin_access_token');
       if (stored && token) {
@@ -36,6 +24,7 @@ export const App: React.FC = () => {
       setLoading(false);
     }
   }, []);
+
 
   if (loading) return null;
 

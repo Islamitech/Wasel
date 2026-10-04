@@ -1,6 +1,6 @@
 import React from 'react';
 
-export const Chip: React.FC<{ label: string; variant?: 'default' | 'accent' | 'ok' }> = ({
+export const Chip: React.FC<{ label: string; variant?: 'default' | 'accent' | 'ok' | 'warn' | 'no' }> = ({
   label,
   variant = 'default',
 }) => {
@@ -8,7 +8,10 @@ export const Chip: React.FC<{ label: string; variant?: 'default' | 'accent' | 'o
     default: { backgroundColor: 'var(--color-chip, #eef3ef)', color: 'var(--color-ink, #12302b)' },
     accent: { backgroundColor: 'rgba(242, 162, 12, 0.15)', color: '#b27400' },
     ok: { backgroundColor: 'rgba(31, 138, 91, 0.15)', color: 'var(--color-ok, #1f8a5b)' },
+    warn: { backgroundColor: 'rgba(234, 88, 12, 0.15)', color: '#ea580c' },
+    no: { backgroundColor: 'rgba(220, 38, 38, 0.15)', color: '#dc2626' },
   };
+
 
   return (
     <span

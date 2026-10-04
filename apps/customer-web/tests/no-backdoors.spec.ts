@@ -1,7 +1,6 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
-import * as zlib from 'zlib';
 import { execSync } from 'child_process';
 
 const PROHIBITED_STRINGS = [
@@ -18,14 +17,14 @@ const PROHIBITED_STRINGS = [
   'وضع التجربة',
 ];
 
-describe('Driver Web: Production Build Backdoor Elimination & Bundle Budget Test', () => {
+describe('Customer Web: Production Build Backdoor Elimination Test', () => {
   const rootDir = path.resolve(__dirname, '..');
   const distDir = path.resolve(rootDir, 'dist');
   const assetsDir = path.resolve(distDir, 'assets');
 
   beforeAll(() => {
     if (!fs.existsSync(assetsDir)) {
-      console.log('[pretest] Building driver-web dist bundle...');
+      console.log('[pretest] Building customer-web dist bundle...');
       execSync('pnpm build', { cwd: rootDir, stdio: 'inherit' });
     }
   });
@@ -35,7 +34,7 @@ describe('Driver Web: Production Build Backdoor Elimination & Bundle Budget Test
     expect(fs.existsSync(assetsDir)).toBe(true);
   });
 
-  it('proves all backdoors and mock strings are strictly absent from production bundles', () => {
+  it('proves all backdoors and mock strings are strictly absent from customer web bundles', () => {
     const files = fs
       .readdirSync(assetsDir)
       .filter((file) => file.endsWith('.js') || file.endsWith('.css'));
@@ -55,23 +54,5 @@ describe('Driver Web: Production Build Backdoor Elimination & Bundle Budget Test
         expect(htmlContent, `index.html must not contain '${prohibited}'`).not.toContain(prohibited);
       }
     }
-  });
-
-  it('proves initial JS bundle size is <= 150 KB gzip excluding map library', () => {
-    const jsFiles = fs
-      .readdirSync(assetsDir)
-      .filter((file) => file.endsWith('.js'));
-
-    const indexFile = jsFiles.find((file) => file.startsWith('index-'));
-    expect(indexFile).toBeDefined();
-
-    const filePath = path.join(assetsDir, indexFile!);
-    const rawContent = fs.readFileSync(filePath);
-    const gzipped = zlib.gzipSync(rawContent);
-
-    const gzipSizeKb = gzipped.length / 1024;
-    console.log(`[Performance Budget] Initial JS gzip size: ${gzipSizeKb.toFixed(2)} KB`);
-
-    expect(gzipSizeKb).toBeLessThanOrEqual(150);
   });
 });

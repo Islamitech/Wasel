@@ -104,13 +104,23 @@ export function getDriverUiError(err: any): DriverUiErrorDetails {
     return DRIVER_ERROR_TAXONOMY[code];
   }
 
-  if (typeof navigator !== 'undefined' && (!navigator.onLine || err?.message?.toLowerCase().includes('network'))) {
+  const statusCode = err?.statusCode || err?.status;
+  if (statusCode === 401 && DRIVER_ERROR_TAXONOMY[ErrorCode.UNAUTHORIZED]) {
+    return DRIVER_ERROR_TAXONOMY[ErrorCode.UNAUTHORIZED]!;
+  }
+  if (statusCode >= 500 && DRIVER_ERROR_TAXONOMY[ErrorCode.INTERNAL_ERROR]) {
+    return DRIVER_ERROR_TAXONOMY[ErrorCode.INTERNAL_ERROR]!;
+  }
+
+
+  if (typeof navigator !== 'undefined' && (!navigator.onLine || err?.message?.toLowerCase().includes('network') || err?.message?.toLowerCase().includes('fetch'))) {
     return {
       arabicMessage: 'أنت غير متصل بالإنترنت حالياً. تم حفظ الإجراء في قائمة العمليات دون اتصال وسيعاد تنفيذه تلقائياً عند عودة الشبكة.',
       recoveryActionLabel: 'حسناً، فهمت',
       actionType: 'dismiss',
     };
   }
+
 
   return {
     arabicMessage: 'عذراً، حدث خطأ غير متوقع أثناء معالجة الطلب.',

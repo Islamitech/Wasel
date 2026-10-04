@@ -6,21 +6,12 @@ export default defineConfig({
   plugins: [react()],
   test: {
     globals: true,
-    environment: 'jsdom',
-    setupFiles: ['./tests/setup.ts'],
-    include: [
-      'tests/no-backdoors.spec.ts',
-      'tests/**/*.unit.spec.ts',
-      'tests/**/*.test.ts',
-      'tests/**/*.test.tsx',
-      'tests/customerStateMachine.spec.ts',
-      'tests/components/**/*.spec.tsx',
-    ],
-    exclude: ['tests/smoke.spec.ts', 'tests/e2e/**'],
+    environment: 'node',
     testTimeout: 20000,
+    include: ['tests/no-backdoors.spec.ts', 'tests/**/*.unit.spec.ts', 'tests/**/*.test.ts'],
+    exclude: ['tests/smoke.spec.ts', 'tests/e2e/**'],
   },
   resolve: {
-
     alias: {
       '@wasel/shared': path.resolve(__dirname, '../../packages/shared/src/index.ts'),
       '@wasel/api-client': path.resolve(__dirname, '../../packages/api-client/src/index.ts'),

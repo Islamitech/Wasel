@@ -3,7 +3,6 @@ import { useTranslation } from 'react-i18next';
 import { apiClient } from '../../api.js';
 import { Button } from '../ui/Button.js';
 import { Chip } from '../ui/Chip.js';
-import { Sheet } from '../ui/Sheet.js';
 import { formatEgp } from '@wasel/shared';
 
 interface HomeShellProps {
@@ -13,7 +12,6 @@ interface HomeShellProps {
 
 export const HomeShell: React.FC<HomeShellProps> = ({ user, onLogout }) => {
   const { t } = useTranslation();
-  const [sheetOpen, setSheetOpen] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
 
   const handleLogout = async () => {
@@ -79,7 +77,6 @@ export const HomeShell: React.FC<HomeShellProps> = ({ user, onLogout }) => {
         </h4>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '12px' }}>
           <div
-            onClick={() => setSheetOpen(true)}
             style={{
               padding: '16px',
               borderRadius: 'var(--radius-sm)',
@@ -100,7 +97,6 @@ export const HomeShell: React.FC<HomeShellProps> = ({ user, onLogout }) => {
           </div>
 
           <div
-            onClick={() => setSheetOpen(true)}
             style={{
               padding: '16px',
               borderRadius: 'var(--radius-sm)',
@@ -121,7 +117,6 @@ export const HomeShell: React.FC<HomeShellProps> = ({ user, onLogout }) => {
           </div>
 
           <div
-            onClick={() => setSheetOpen(true)}
             style={{
               padding: '16px',
               borderRadius: 'var(--radius-sm)',
@@ -149,22 +144,7 @@ export const HomeShell: React.FC<HomeShellProps> = ({ user, onLogout }) => {
           {t('auth.logout')}
         </Button>
       </div>
-
-      {/* Sheet Demo */}
-      <Sheet
-        isOpen={sheetOpen}
-        onClose={() => setSheetOpen(false)}
-        title="إنشاء طلب جديد (نموذج الهيكل)"
-      >
-        <div style={{ textAlign: 'center', padding: '16px 0' }}>
-          <p style={{ color: '#4b5563', marginBottom: '20px', lineHeight: 1.6 }}>
-            تم تفعيل هيكل الـ Bottom Sheet بنجاح مع دعم كامل لاتجاه اليمين لليسار (RTL) والحركات السلسة.
-          </p>
-          <Button variant="primary" onClick={() => setSheetOpen(false)}>
-            حسناً، فهمت
-          </Button>
-        </div>
-      </Sheet>
     </div>
   );
 };
+

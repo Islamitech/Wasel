@@ -53,3 +53,54 @@ export const ApiErrorEnvelopeSchema = z.object({
 });
 
 export type ApiErrorEnvelope = z.infer<typeof ApiErrorEnvelopeSchema>;
+
+export function formatAuthError(error: unknown): string {
+  if (!error) return 'حدث خطأ غير متوقع';
+
+  const errObj = error as { errorCode?: string; code?: string; details?: { remainingAttempts?: number; cooldownSeconds?: number; retryAfter?: number }; message?: string };
+  const errorCode = errObj?.errorCode || errObj?.code;
+  const details = errObj?.details;
+
+
+  switch (errorCode) {
+    case ErrorCode.OTP_INVALID: {
+      const remaining = details?.remainingAttempts;
+      if (typeof remaining === 'number') {
+        return `رمز التحقق غير صحيح. المحاولات المتبقية: ${remaining}`;
+      }
+      return 'رمز التحقق غير صحيح، يرجى التأكد وإعادة المحاولة';
+    }
+    case ErrorCode.OTP_EXPIRED:
+      return 'انتهت صلاحية رمز التحقق، يرجى طلب رمز جديد';
+    case ErrorCode.OTP_COOLDOWN: {
+      const seconds = details?.cooldownSeconds || details?.retryAfter;
+      if (typeof seconds === 'number') {
+        return `يرجى الانتظار ${seconds} ثانية قبل إعادة طلب الرمز`;
+      }
+      return 'يرجى الانتظار قبل إعادة إرسال الرمز';
+    }
+    case ErrorCode.OTP_MAX_ATTEMPTS:
+      return 'تم تجاوز الحد الأقصى للمحاولات. يرجى طلب رمز تحقق جديد';
+    case ErrorCode.RATE_LIMITED:
+      return 'تم تجاوز الحد المسموح من الطلبات. يرجى الانتظار والمحاولة لاحقاً';
+    case ErrorCode.UNAUTHORIZED:
+      return 'بيانات تسجيل الدخول غير صحيحة';
+    case ErrorCode.FORBIDDEN:
+      return 'ليس لديك صلاحية للوصول إلى هذا المورد';
+    case ErrorCode.CONFLICT:
+    case ErrorCode.IDEMPOTENCY_CONFLICT:
+      return 'حدث تعارض في العملية، يرجى المحاولة مجدداً';
+    default: {
+      const msg = errObj?.message;
+
+      if (typeof msg === 'string') {
+        if (msg.includes('fetch') || msg.includes('Network') || msg.includes('Failed to fetch')) {
+          return 'تعذر الاتصال بالخادم، يرجى التحقق من اتصال الإنترنت';
+        }
+        return msg;
+      }
+      return 'حدث خطأ أثناء الاتصال بالخادم، يرجى المحاولة مرة أخرى';
+    }
+  }
+}
+

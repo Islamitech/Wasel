@@ -34,6 +34,10 @@ An Arabic-first (RTL) local logistics and delivery marketplace connecting reside
 - Driver subscription management prioritizing active subscriptions, extending renewals from current `endsAt`, and granting an automatic 30-day trial upon driver verification without duplicate grants.
 - Electronic payment integration (`PaymobPaymentProvider`) with idempotent HMAC SHA512 signature verification, automatic reconciliation, and cash settlement architecture documentation (ADR-0004).
 - Production web push notifications (`WebPushProvider`) with native fetch and 410/404 expired subscription cleanup, and Google Maps integration (`GoogleMapsProvider`) with reverse geocoding and routing fallbacks.
+- Elimination of frontend authentication backdoors, mock credentials, and hardcoded test tokens across customer-web, driver-web, and admin-web, enforced by automated bundle scanning (`tests/no-backdoors.spec.ts`).
+- Clear Arabic error taxonomy (`formatAuthError`) for authentication failures (remaining attempts, cooldown timers, network errors) and strict client role specification (`customer` or `driver`).
+- Modularized live Admin Dashboard with TanStack Query and `@wasel/api-client` across 8 domain tabs with role segregation (`admin` vs `support`), presigned document previews, subscription grants, dispute resolution, pricing/settings audit tracking, and sanitized user search.
+- Client connectivity and build hardening: build-time `VITE_API_URL` validation, strict CSP and security headers via `vercel.json`, `FakeMapProvider` tree-shaking guard, and offline queue idempotency keys with terminal 409/422 dead-lettering.
 
 ## Planned capabilities
 - Multi-stop cart creation directly from interactive neighborhood map pins.
@@ -41,6 +45,7 @@ An Arabic-first (RTL) local logistics and delivery marketplace connecting reside
 - Real-time driver live location tracking on customer maps.
 
 ## Updated
+2026-10-04 — Phase 6: Front-end Hardening & Real Admin Dashboard (F-04 elimination of client backdoors/mock tokens with automated bundle test, real Arabic error taxonomy, F-03 modularized live admin dashboard on real API with role-based UI and audit trails, O-03 build-time URL validation, strict CSP & headers, FakeMapProvider isolation, and driver offline queue idempotency with terminal dead-lettering).
 2026-10-04 — Phase 5: Features & Live Integrations (F-01 PostGIS spatial matching & nearby radar, F-02 SSE ticket auth, ring buffer playback & recipient routing, S-17 WhatsApp/SMS dual failover OTP & anti-pumping, F-05 subscriptions, Paymob HMAC webhook & 30d trial grant, Web Push & Google Maps providers, ADR-0004 cash settlement architecture).
 2026-10-04 — Phase 4: Privacy & Fine-Grained Authorization (S-08 private media & presigned URLs, S-09 verification doc encryption & prefix isolation, S-12 OrderRadarView & ~300m grid obfuscation, S-13 in-agreement messaging & rate limits, ratings completion checks, admin PII search sanitization, IDOR elimination).
 2026-10-04 — Phase 3: Transactional Integrity, Outbox, Expirations & Redis Idempotency (D-03 ACID transactions & row locking, D-04 transactional outbox & BullMQ/fallback worker, D-05 business rules & self-assignment guard, D-06 expiry sweeps, S-04 Redis idempotency).

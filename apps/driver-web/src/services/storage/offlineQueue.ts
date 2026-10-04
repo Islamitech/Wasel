@@ -74,15 +74,17 @@ function writeLocalStorageActions(actions: OfflineAction[]): void {
 }
 
 export async function enqueueOfflineAction(
-  action: Omit<OfflineAction, 'id' | 'timestamp' | 'status' | 'retryCount'>,
+  action: Omit<OfflineAction, 'id' | 'timestamp' | 'status' | 'retryCount'> & { idempotencyKey?: string },
 ): Promise<OfflineAction> {
   const newAction: OfflineAction = {
     ...action,
     id: generateUuid(),
+    idempotencyKey: action.idempotencyKey || generateUuid(),
     timestamp: Date.now(),
     status: 'pending',
     retryCount: 0,
   };
+
 
   // 1. Synchronously backup to localStorage
   const currentLs = readLocalStorageActions();
@@ -161,7 +163,7 @@ export async function updateActionStatus(
   const index = ls.findIndex((a) => a.id === id);
   const action = ls[index];
   if (index !== -1 && action) {
-    if (status === 'completed') {
+    if (status === 'completed' || status === 'dead') {
       ls.splice(index, 1);
     } else {
       action.status = status;
@@ -179,7 +181,7 @@ export async function updateActionStatus(
     await new Promise<void>((resolve, reject) => {
       const tx = db.transaction(STORE_NAME, 'readwrite');
       const store = tx.objectStore(STORE_NAME);
-      if (status === 'completed') {
+      if (status === 'completed' || status === 'dead') {
         store.delete(id);
       } else {
         const getReq = store.get(id);
@@ -256,8 +258,38 @@ export async function replayOfflineQueue(
       } catch (err: any) {
         failed++;
         console.error(`[OfflineQueue] Replay error on action ${action.type}:`, err);
+        const status = err?.statusCode || err?.status;
+        const isTerminalError = status === 409 || status === 422;
+        const isMaxRetries = (action.retryCount || 0) >= 4;
+
+        if (isTerminalError || isMaxRetries) {
+          const rejectionReason =
+            status === 409
+              ? 'تعارض في حالة الطلب، تم استبعاد الإجراء لتفادي التعليق'
+              : status === 422
+              ? 'بيانات الإجراء غير صالحة للتنفيذ'
+              : 'تم تجاوز الحد الأقصى لمحاولات إعادة إرسال الإجراء';
+
+          await updateActionStatus(action.id, 'dead', rejectionReason);
+
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(
+              new CustomEvent('wasel:offline-action-rejected', {
+                detail: {
+                  actionId: action.id,
+                  actionType: action.type,
+                  statusCode: status,
+                  message: rejectionReason,
+                },
+              }),
+            );
+          }
+          // Do not halt queue permanently on a dead-lettered terminal error; continue to process remaining
+          continue;
+        }
+
         await updateActionStatus(action.id, 'failed', err?.message || 'Execution error');
-        // Stop subsequent chained actions if one fails (preserves FIFO causal order)
+        // Stop subsequent chained actions if one transient failure occurs (preserves FIFO causal order)
         break;
       }
     }
@@ -269,6 +301,7 @@ export async function replayOfflineQueue(
 
   return { processed, failed };
 }
+
 
 // Auto-replay on reconnect
 if (typeof window !== 'undefined') {

@@ -1,4 +1,5 @@
 import { Injectable, Logger, Inject } from '@nestjs/common';
+import { desc, eq } from 'drizzle-orm';
 import { DatabaseService, type DatabaseTransaction } from '../../database/database.service.js';
 import { auditLogs } from '../../database/schema/index.js';
 
@@ -38,4 +39,23 @@ export class AuditService {
       this.logger.error(`Failed to record audit log: ${msg}`);
     }
   }
+
+  async findLogs(limit = 50, offset = 0, entityType?: string) {
+    if (entityType) {
+      return this.dbService.db
+        .select()
+        .from(auditLogs)
+        .where(eq(auditLogs.entityType, entityType))
+        .orderBy(desc(auditLogs.createdAt))
+        .limit(limit)
+        .offset(offset);
+    }
+    return this.dbService.db
+      .select()
+      .from(auditLogs)
+      .orderBy(desc(auditLogs.createdAt))
+      .limit(limit)
+      .offset(offset);
+  }
 }
+

@@ -4,7 +4,7 @@ import { apiClient } from '../../api.js';
 import { Button } from '../ui/Button.js';
 import { Field } from '../ui/Field.js';
 import { Toast } from '../ui/Toast.js';
-import { UserRole } from '@wasel/shared';
+import { UserRole, formatAuthError } from '@wasel/shared';
 
 interface PhoneAuthScreenProps {
   onSuccess: (user: any) => void;
@@ -48,11 +48,10 @@ export const PhoneAuthScreen: React.FC<PhoneAuthScreenProps> = ({
       setToast({ message: res.message || 'تم إرسال رمز التحقق', type: 'ok' });
       setCooldown(res.resendCooldownSeconds || 60);
       setStep('otp');
-    } catch {
-      // Seamless fallback: allow user to continue if backend is not deployed
-      setToast({ message: 'تم إرسال رمز التحقق بنجاح', type: 'ok' });
-      setCooldown(60);
-      setStep('otp');
+    } catch (err: any) {
+      const errorMsg = formatAuthError(err);
+      setError(errorMsg);
+      setToast({ message: errorMsg, type: 'error' });
     } finally {
       setLoading(false);
     }
@@ -75,33 +74,10 @@ export const PhoneAuthScreen: React.FC<PhoneAuthScreenProps> = ({
       localStorage.setItem('wasel_user', JSON.stringify(res.user));
       setToast({ message: 'تم تسجيل الدخول بنجاح', type: 'ok' });
       onSuccess(res.user);
-    } catch {
-      // Standalone / Offline fallback: create active customer session
-      const fallbackUser = {
-        id: `customer-${phone.slice(-4) || 'demo'}`,
-        phone,
-        fullName: `عميل واصل (${phone.slice(-4)})`,
-        roles: ['customer'],
-      };
-      localStorage.setItem('wasel_access_token', 'token_cust_' + Date.now());
-      localStorage.setItem('wasel_refresh_token', 'refresh_cust_' + Date.now());
-      localStorage.setItem('wasel_user', JSON.stringify(fallbackUser));
-
-      try {
-        const stored = JSON.parse(localStorage.getItem('wasel_registered_customers') || '[]');
-        stored.unshift({
-          id: fallbackUser.id,
-          name: fallbackUser.fullName,
-          phone,
-          registeredAt: new Date().toISOString(),
-        });
-        localStorage.setItem('wasel_registered_customers', JSON.stringify(stored));
-      } catch {
-        // ignore
-      }
-
-      setToast({ message: 'تم تسجيل الدخول بنجاح', type: 'ok' });
-      onSuccess(fallbackUser);
+    } catch (err: any) {
+      const errorMsg = formatAuthError(err);
+      setError(errorMsg);
+      setToast({ message: errorMsg, type: 'error' });
     } finally {
       setLoading(false);
     }
