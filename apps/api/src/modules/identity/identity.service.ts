@@ -79,11 +79,14 @@ export class IdentityService {
     );
     const maxAttempts = await this.settingsService.get<number>('otp_max_attempts', undefined, 3);
 
-    // 3. Generate 6-digit OTP code (in dev mode, deterministic 123456 or random)
-    const code =
-      process.env.NODE_ENV === 'test' || process.env.OTP_PROVIDER === 'dev'
-        ? '123456'
-        : Math.floor(100000 + Math.random() * 900000).toString();
+    // 3. Generate 6-digit OTP code (deterministic 123456 only in non-production test/dev mode)
+    const isDevOrTest =
+      process.env.NODE_ENV !== 'production' &&
+      (process.env.NODE_ENV === 'test' || process.env.OTP_PROVIDER === 'dev');
+
+    const code = isDevOrTest
+      ? '123456'
+      : Math.floor(100000 + Math.random() * 900000).toString();
 
     const hashedCode = await bcrypt.hash(code, 10);
     const expiresAt = new Date(now.getTime() + expiryMinutes * 60 * 1000);

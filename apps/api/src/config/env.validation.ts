@@ -26,7 +26,13 @@ export const EnvSchema = z.object({
   VAPID_PUBLIC_KEY: z.string().optional(),
   VAPID_PRIVATE_KEY: z.string().optional(),
   VAPID_SUBJECT: z.string().optional().default('mailto:admin@wasel.local'),
-});
+}).refine(
+  (data) => !(data.NODE_ENV === 'production' && data.OTP_PROVIDER === 'dev'),
+  {
+    message: 'OTP_PROVIDER cannot be "dev" in production environment! Startup aborted.',
+    path: ['OTP_PROVIDER'],
+  },
+);
 
 export type EnvConfig = z.infer<typeof EnvSchema>;
 
