@@ -18,6 +18,10 @@ import {
   sessions,
   otpChallenges,
   regions,
+  customerProfiles,
+  driverProfiles,
+  pushSubscriptions,
+  vehicles,
 } from '../../database/schema/index.js';
 import { eq, and, desc, isNull, inArray } from 'drizzle-orm';
 import {
@@ -533,4 +537,107 @@ export class IdentityService {
 
     return { userRoleNames, userPermissionNames };
   }
+
+  async getMe(userId: string) {
+    const user = await this.getUserProfile(userId);
+    const [custProfile] = await this.dbService.db.select().from(customerProfiles).where(eq(customerProfiles.id, userId)).limit(1);
+    const [drvProfile] = await this.dbService.db.select().from(driverProfiles).where(eq(driverProfiles.id, userId)).limit(1);
+
+    return {
+      ...user,
+      customerProfile: custProfile || null,
+      driverProfile: drvProfile || null,
+    };
+  }
+
+  async updateMe(userId: string, data: { fullName?: string; regionId?: string }) {
+    await this.dbService.db
+      .update(users)
+      .set({
+        ...(data.fullName !== undefined ? { fullName: data.fullName } : {}),
+        ...(data.regionId !== undefined ? { regionId: data.regionId } : {}),
+        updatedAt: new Date(),
+      })
+      .where(eq(users.id, userId));
+
+    return this.getMe(userId);
+  }
+
+  async registerPushDevice(userId: string, dto: { endpoint: string; keys: { p256dh: string; auth: string }; deviceInfo?: string }) {
+    const [existing] = await this.dbService.db
+      .select()
+      .from(pushSubscriptions)
+      .where(and(eq(pushSubscriptions.userId, userId), eq(pushSubscriptions.endpoint, dto.endpoint)))
+      .limit(1);
+
+    if (existing) {
+      const [updated] = await this.dbService.db
+        .update(pushSubscriptions)
+        .set({
+          p256dh: dto.keys.p256dh,
+          auth: dto.keys.auth,
+          userAgent: dto.deviceInfo,
+          updatedAt: new Date(),
+        })
+        .where(eq(pushSubscriptions.id, existing.id))
+        .returning();
+      return { success: true, subscriptionId: updated!.id };
+    }
+
+    const [created] = await this.dbService.db
+      .insert(pushSubscriptions)
+      .values({
+        userId,
+        endpoint: dto.endpoint,
+        p256dh: dto.keys.p256dh,
+        auth: dto.keys.auth,
+        userAgent: dto.deviceInfo,
+      })
+      .returning();
+
+    return { success: true, subscriptionId: created!.id };
+  }
+
+  async getCustomerProfile(userId: string) {
+    const [profile] = await this.dbService.db
+      .select()
+      .from(customerProfiles)
+      .where(eq(customerProfiles.id, userId))
+      .limit(1);
+
+    if (!profile) {
+      const [created] = await this.dbService.db
+        .insert(customerProfiles)
+        .values({ id: userId })
+        .returning();
+      return created;
+    }
+    return profile;
+  }
+
+  async getDriverProfile(userId: string) {
+    const [profile] = await this.dbService.db
+      .select()
+      .from(driverProfiles)
+      .where(eq(driverProfiles.id, userId))
+      .limit(1);
+
+    if (!profile) {
+      throw new NotFoundException({
+        errorCode: ErrorCode.NOT_FOUND,
+        message: 'ملف الكابتن غير مسجل بعد، يرجى إكمال بيانات التسجيل',
+      });
+    }
+
+    const driverVehicles = await this.dbService.db
+      .select()
+      .from(vehicles)
+      .where(eq(vehicles.driverId, userId));
+
+    return {
+      ...profile,
+      vehicles: driverVehicles,
+    };
+  }
 }
+

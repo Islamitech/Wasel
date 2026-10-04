@@ -1,0 +1,2001 @@
+{
+  "openapi": "3.0.0",
+  "paths": {
+    "/v1/auth/otp/request": {
+      "post": {
+        "operationId": "IdentityController_requestOtp",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "OTP challenge initiated"
+          }
+        },
+        "summary": "Request OTP challenge for login/registration",
+        "tags": [
+          "Auth"
+        ]
+      }
+    },
+    "/v1/auth/otp/verify": {
+      "post": {
+        "operationId": "IdentityController_verifyOtp",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Authentication successful"
+          }
+        },
+        "summary": "Verify OTP code and receive session tokens",
+        "tags": [
+          "Auth"
+        ]
+      }
+    },
+    "/v1/auth/admin/login": {
+      "post": {
+        "operationId": "IdentityController_adminLogin",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Admin authentication successful"
+          }
+        },
+        "summary": "Admin login with email and password",
+        "tags": [
+          "Auth"
+        ]
+      }
+    },
+    "/v1/auth/refresh": {
+      "post": {
+        "operationId": "IdentityController_refresh",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Token refreshed"
+          }
+        },
+        "summary": "Rotate refresh token and obtain new access token",
+        "tags": [
+          "Auth"
+        ]
+      }
+    },
+    "/v1/auth/logout": {
+      "post": {
+        "operationId": "IdentityController_logout",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Revoke active session",
+        "tags": [
+          "Auth"
+        ]
+      }
+    },
+    "/v1/auth/me": {
+      "get": {
+        "operationId": "IdentityController_getProfile",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Get current authenticated user profile",
+        "tags": [
+          "Auth"
+        ]
+      }
+    },
+    "/v1/auth/admin/protected-check": {
+      "get": {
+        "operationId": "IdentityController_checkAdminAccess",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Check RBAC permissions enforcement",
+        "tags": [
+          "Auth"
+        ]
+      }
+    },
+    "/v1/me": {
+      "get": {
+        "operationId": "MeController_getMe",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Get current user profile, roles, customer and driver status",
+        "tags": [
+          "User Profile (Me)"
+        ]
+      },
+      "patch": {
+        "operationId": "MeController_updateMe",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Update user profile details",
+        "tags": [
+          "User Profile (Me)"
+        ]
+      }
+    },
+    "/v1/me/devices": {
+      "post": {
+        "operationId": "MeController_registerPushDevice",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Register or refresh Web Push notification subscription",
+        "tags": [
+          "User Profile (Me)"
+        ]
+      }
+    },
+    "/v1/me/customer": {
+      "get": {
+        "operationId": "MeController_getCustomerProfile",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Get customer profile statistics",
+        "tags": [
+          "User Profile (Me)"
+        ]
+      }
+    },
+    "/v1/me/driver": {
+      "get": {
+        "operationId": "MeController_getDriverProfile",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Get driver profile and registered vehicles",
+        "tags": [
+          "User Profile (Me)"
+        ]
+      }
+    },
+    "/v1/regions": {
+      "get": {
+        "operationId": "RegionsController_getActiveRegions",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "List of active regions"
+          }
+        },
+        "summary": "List active operating regions",
+        "tags": [
+          "Regions"
+        ]
+      }
+    },
+    "/v1/catalog": {
+      "get": {
+        "operationId": "CatalogController_getCatalog",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Get unified platform catalog with ETag caching",
+        "tags": [
+          "Catalog & Places"
+        ]
+      }
+    },
+    "/v1/places": {
+      "get": {
+        "operationId": "CatalogController_searchPlaces",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Search points of interest (places) by text query or proximity",
+        "tags": [
+          "Catalog & Places"
+        ]
+      },
+      "post": {
+        "operationId": "CatalogController_suggestPlace",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Suggest a missing place (pending admin verification)",
+        "tags": [
+          "Catalog & Places"
+        ]
+      }
+    },
+    "/v1/catalog/vehicle-types": {
+      "get": {
+        "operationId": "CatalogController_getVehicleTypes",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "List active vehicle types",
+        "tags": [
+          "Catalog & Places"
+        ]
+      }
+    },
+    "/v1/catalog/service-actions": {
+      "get": {
+        "operationId": "CatalogController_getServiceActions",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "List service actions",
+        "tags": [
+          "Catalog & Places"
+        ]
+      }
+    },
+    "/v1/catalog/value-tiers": {
+      "get": {
+        "operationId": "CatalogController_getValueTiers",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "List cargo value tiers",
+        "tags": [
+          "Catalog & Places"
+        ]
+      }
+    },
+    "/v1/driver/profile": {
+      "post": {
+        "operationId": "VerificationController_upsertProfile",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Initialize or update captain profile",
+        "tags": [
+          "Driver Onboarding & Verification"
+        ]
+      }
+    },
+    "/v1/driver/vehicles": {
+      "post": {
+        "operationId": "VerificationController_registerVehicle",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Register a vehicle under driver profile",
+        "tags": [
+          "Driver Onboarding & Verification"
+        ]
+      }
+    },
+    "/v1/driver/documents/upload-url": {
+      "post": {
+        "operationId": "VerificationController_getUploadUrl",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Get pre-signed upload URL for private verification document",
+        "tags": [
+          "Driver Onboarding & Verification"
+        ]
+      }
+    },
+    "/v1/driver/documents": {
+      "post": {
+        "operationId": "VerificationController_submitDocument",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Submit KYC / vehicle document for verification review",
+        "tags": [
+          "Driver Onboarding & Verification"
+        ]
+      }
+    },
+    "/v1/driver/verification": {
+      "get": {
+        "operationId": "VerificationController_getVerificationStatus",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Get current captain verification tier and missing documents",
+        "tags": [
+          "Driver Onboarding & Verification"
+        ]
+      }
+    },
+    "/v1/admin/verifications": {
+      "get": {
+        "operationId": "VerificationController_listVerifications",
+        "parameters": [
+          {
+            "name": "status",
+            "required": false,
+            "in": "query",
+            "schema": {}
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "List pending verification documents",
+        "tags": [
+          "Driver Onboarding & Verification"
+        ]
+      }
+    },
+    "/v1/admin/verifications/{id}/approve": {
+      "post": {
+        "operationId": "VerificationController_approveVerification",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Approve driver verification document",
+        "tags": [
+          "Driver Onboarding & Verification"
+        ]
+      }
+    },
+    "/v1/admin/verifications/{id}/reject": {
+      "post": {
+        "operationId": "VerificationController_rejectVerification",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Reject driver verification document with reason",
+        "tags": [
+          "Driver Onboarding & Verification"
+        ]
+      }
+    },
+    "/v1/orders": {
+      "post": {
+        "operationId": "OrdersController_createDraftOrder",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Create a draft order with sequential stops cart",
+        "tags": [
+          "Orders"
+        ]
+      },
+      "get": {
+        "operationId": "OrdersController_listOrders",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "List orders placed by current customer",
+        "tags": [
+          "Orders"
+        ]
+      }
+    },
+    "/v1/orders/{id}": {
+      "get": {
+        "operationId": "OrdersController_getOrderDetails",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Get full order details, stops, and active agreement snapshot",
+        "tags": [
+          "Orders"
+        ]
+      },
+      "patch": {
+        "operationId": "OrdersController_updateDraftOrder",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Update order parameters while in draft status",
+        "tags": [
+          "Orders"
+        ]
+      }
+    },
+    "/v1/orders/{id}/stops": {
+      "post": {
+        "operationId": "OrdersController_addStop",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Append a new stop task to a draft order",
+        "tags": [
+          "Orders"
+        ]
+      }
+    },
+    "/v1/orders/{id}/stops/{stopId}": {
+      "delete": {
+        "operationId": "OrdersController_deleteStop",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Remove a stop task from a draft order",
+        "tags": [
+          "Orders"
+        ]
+      }
+    },
+    "/v1/orders/{id}/quote": {
+      "post": {
+        "operationId": "OrdersController_quoteOrder",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Compute minimum guaranteed fare using SQL formula & billable visits",
+        "tags": [
+          "Orders"
+        ]
+      }
+    },
+    "/v1/orders/{id}/publish": {
+      "post": {
+        "operationId": "OrdersController_publishOrder",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Freeze pricing snapshot and publish order for driver dispatch",
+        "tags": [
+          "Orders"
+        ]
+      }
+    },
+    "/v1/orders/{id}/cancel": {
+      "post": {
+        "operationId": "OrdersController_cancelOrder",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Cancel order with reason",
+        "tags": [
+          "Orders"
+        ]
+      }
+    },
+    "/v1/orders/{id}/media/upload-url": {
+      "post": {
+        "operationId": "OrdersController_getMediaUploadUrl",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Get pre-signed upload URL for order voice notes / photos",
+        "tags": [
+          "Orders"
+        ]
+      }
+    },
+    "/v1/driver/orders/nearby": {
+      "get": {
+        "operationId": "MatchingController_getNearbyOrders",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Driver radar view: list nearby eligible orders within search radius",
+        "tags": [
+          "Driver Dispatch & Nearby Radar"
+        ]
+      }
+    },
+    "/v1/driver/orders/{id}": {
+      "get": {
+        "operationId": "MatchingController_getDriverOrderCard",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Driver card view: summary of stops, guaranteed minimum fare, and distance",
+        "tags": [
+          "Driver Dispatch & Nearby Radar"
+        ]
+      }
+    },
+    "/v1/driver/orders/{id}/decline": {
+      "post": {
+        "operationId": "MatchingController_declineOrder",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Driver declines a candidate dispatch broadcast",
+        "tags": [
+          "Driver Dispatch & Nearby Radar"
+        ]
+      }
+    },
+    "/v1/driver/subscription": {
+      "get": {
+        "operationId": "SubscriptionsController_getDriverSubscription",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Get current driver active subscription and trial details",
+        "tags": [
+          "Driver Subscriptions"
+        ]
+      }
+    },
+    "/v1/subscription-plans": {
+      "get": {
+        "operationId": "SubscriptionsController_getSubscriptionPlans",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "List public driver subscription packages",
+        "tags": [
+          "Driver Subscriptions"
+        ]
+      }
+    },
+    "/v1/admin/subscriptions": {
+      "post": {
+        "operationId": "SubscriptionsController_adminGrantSubscription",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Manually grant, activate, or extend driver subscription plan",
+        "tags": [
+          "Driver Subscriptions"
+        ]
+      }
+    },
+    "/v1/admin/subscriptions/{id}/payments": {
+      "post": {
+        "operationId": "SubscriptionsController_adminRecordPayment",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Record manual cash / offline payment for driver subscription",
+        "tags": [
+          "Driver Subscriptions"
+        ]
+      }
+    },
+    "/v1/orders/{id}/offers": {
+      "post": {
+        "operationId": "AgreementsController_createOffer",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Driver submits quote/offer on a published order",
+        "tags": [
+          "Offers, Agreements & Trip Execution"
+        ]
+      },
+      "get": {
+        "operationId": "AgreementsController_getOrderOffers",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "List offers submitted for an order",
+        "tags": [
+          "Offers, Agreements & Trip Execution"
+        ]
+      }
+    },
+    "/v1/offers/{id}/accept": {
+      "post": {
+        "operationId": "AgreementsController_acceptOffer",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Customer accepts a driver offer, creating binding agreement",
+        "tags": [
+          "Offers, Agreements & Trip Execution"
+        ]
+      }
+    },
+    "/v1/offers/{id}/reject": {
+      "post": {
+        "operationId": "AgreementsController_rejectOffer",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Customer rejects a driver offer",
+        "tags": [
+          "Offers, Agreements & Trip Execution"
+        ]
+      }
+    },
+    "/v1/offers/{id}/counter": {
+      "post": {
+        "operationId": "AgreementsController_counterOffer",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Counter an existing offer within turn-taking limits",
+        "tags": [
+          "Offers, Agreements & Trip Execution"
+        ]
+      }
+    },
+    "/v1/orders/{id}/accept": {
+      "post": {
+        "operationId": "AgreementsController_driverAcceptShoppingOrder",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Driver directly accepts shopping order at guaranteed minimum fare",
+        "tags": [
+          "Offers, Agreements & Trip Execution"
+        ]
+      }
+    },
+    "/v1/orders/{id}/assign": {
+      "post": {
+        "operationId": "AgreementsController_directAssign",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Customer directly assigns order to preferred captain",
+        "tags": [
+          "Offers, Agreements & Trip Execution"
+        ]
+      }
+    },
+    "/v1/agreements/{id}/amendments": {
+      "post": {
+        "operationId": "AgreementsController_proposeAmendment",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Propose an amendment to ongoing agreement (added stops/revised fare)",
+        "tags": [
+          "Offers, Agreements & Trip Execution"
+        ]
+      }
+    },
+    "/v1/amendments/{id}/approve": {
+      "post": {
+        "operationId": "AgreementsController_approveAmendment",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Countersigning party approves proposed agreement amendment",
+        "tags": [
+          "Offers, Agreements & Trip Execution"
+        ]
+      }
+    },
+    "/v1/amendments/{id}/reject": {
+      "post": {
+        "operationId": "AgreementsController_rejectAmendment",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Reject proposed agreement amendment",
+        "tags": [
+          "Offers, Agreements & Trip Execution"
+        ]
+      }
+    },
+    "/v1/agreements/{id}/cancel": {
+      "post": {
+        "operationId": "AgreementsController_cancelAgreement",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Cancel active agreement with stated reason",
+        "tags": [
+          "Offers, Agreements & Trip Execution"
+        ]
+      }
+    },
+    "/v1/agreements/{id}/stops/{stopId}/arrive": {
+      "post": {
+        "operationId": "AgreementsController_driverArrive",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Record driver physical arrival at stop with device location coordinates",
+        "tags": [
+          "Offers, Agreements & Trip Execution"
+        ]
+      }
+    },
+    "/v1/agreements/{id}/stops/{stopId}/wait/start": {
+      "post": {
+        "operationId": "AgreementsController_driverStartWait",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Start billable waiting timer (wait mode only)",
+        "tags": [
+          "Offers, Agreements & Trip Execution"
+        ]
+      }
+    },
+    "/v1/agreements/{id}/stops/{stopId}/wait/end": {
+      "post": {
+        "operationId": "AgreementsController_driverEndWait",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "End billable waiting timer",
+        "tags": [
+          "Offers, Agreements & Trip Execution"
+        ]
+      }
+    },
+    "/v1/agreements/{id}/stops": {
+      "post": {
+        "operationId": "AgreementsController_driverAddInFlightStop",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Driver adds in-flight stop (creates pending amendment)",
+        "tags": [
+          "Offers, Agreements & Trip Execution"
+        ]
+      }
+    },
+    "/v1/stops/{stopId}/invoice": {
+      "post": {
+        "operationId": "AgreementsController_driverIssueInvoice",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Record merchant purchase invoice paid by driver",
+        "tags": [
+          "Offers, Agreements & Trip Execution"
+        ]
+      }
+    },
+    "/v1/invoices/{id}/send": {
+      "post": {
+        "operationId": "AgreementsController_sendInvoice",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Transmit issued purchase invoice to customer",
+        "tags": [
+          "Offers, Agreements & Trip Execution"
+        ]
+      }
+    },
+    "/v1/invoices/{id}/payment-recorded": {
+      "post": {
+        "operationId": "AgreementsController_recordPayment",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Record cash payment settlement between customer and captain",
+        "tags": [
+          "Offers, Agreements & Trip Execution"
+        ]
+      }
+    },
+    "/v1/invoices/{id}/dispute": {
+      "post": {
+        "operationId": "AgreementsController_disputeInvoice",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Customer disputes an incorrect or unauthorized purchase invoice",
+        "tags": [
+          "Offers, Agreements & Trip Execution"
+        ]
+      }
+    },
+    "/v1/agreements/{id}/stops/{stopId}/complete": {
+      "post": {
+        "operationId": "AgreementsController_driverCompleteStop",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Mark waypoint stop completed and advance to next stop",
+        "tags": [
+          "Offers, Agreements & Trip Execution"
+        ]
+      }
+    },
+    "/v1/agreements/{id}/complete": {
+      "post": {
+        "operationId": "AgreementsController_driverCompleteTrip",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Complete trip, run SQL calculate_final_fare, and return settlement breakdown",
+        "tags": [
+          "Offers, Agreements & Trip Execution"
+        ]
+      }
+    },
+    "/v1/driver/location": {
+      "post": {
+        "operationId": "AgreementsController_driverLocation",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "High-throughput batched GPS telemetry points",
+        "tags": [
+          "Offers, Agreements & Trip Execution"
+        ]
+      }
+    },
+    "/v1/driver/presence": {
+      "post": {
+        "operationId": "AgreementsController_driverPresence",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Toggle captain online/offline availability",
+        "tags": [
+          "Offers, Agreements & Trip Execution"
+        ]
+      }
+    },
+    "/v1/agreements/{id}/messages": {
+      "get": {
+        "operationId": "MessagingController_getMessages",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Retrieve conversation messages for an agreement (participants only)",
+        "tags": [
+          "In-App Messaging"
+        ]
+      },
+      "post": {
+        "operationId": "MessagingController_sendMessage",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Send text or voice/image message within trip channel",
+        "tags": [
+          "In-App Messaging"
+        ]
+      }
+    },
+    "/v1/messages/{id}/read": {
+      "post": {
+        "operationId": "MessagingController_markRead",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Mark message as read",
+        "tags": [
+          "In-App Messaging"
+        ]
+      }
+    },
+    "/v1/notifications": {
+      "get": {
+        "operationId": "NotificationsController_listNotifications",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "List notifications for current user",
+        "tags": [
+          "Notifications"
+        ]
+      }
+    },
+    "/v1/notifications/{id}/read": {
+      "post": {
+        "operationId": "NotificationsController_markRead",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Mark notification as read",
+        "tags": [
+          "Notifications"
+        ]
+      }
+    },
+    "/v1/agreements/{id}/ratings": {
+      "post": {
+        "operationId": "RatingsController_createRating",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Submit mutual evaluation (1-5 stars) after trip completion",
+        "tags": [
+          "Trust, Ratings & Disputes"
+        ]
+      }
+    },
+    "/v1/drivers/{id}/reputation": {
+      "get": {
+        "operationId": "RatingsController_getDriverReputation",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Public captain trust & reputation card (rating, completed trips, verification rank)",
+        "tags": [
+          "Trust, Ratings & Disputes"
+        ]
+      }
+    },
+    "/v1/disputes": {
+      "post": {
+        "operationId": "RatingsController_createDispute",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "File a dispute or claim regarding an order or agreement",
+        "tags": [
+          "Trust, Ratings & Disputes"
+        ]
+      },
+      "get": {
+        "operationId": "RatingsController_listDisputes",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "List filed disputes (users see own cases; admins see all)",
+        "tags": [
+          "Trust, Ratings & Disputes"
+        ]
+      }
+    },
+    "/v1/admin/disputes/{id}/assign": {
+      "post": {
+        "operationId": "RatingsController_assignDispute",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Assign support agent or administrator to investigate dispute",
+        "tags": [
+          "Trust, Ratings & Disputes"
+        ]
+      }
+    },
+    "/v1/admin/disputes/{id}/events": {
+      "post": {
+        "operationId": "RatingsController_addDisputeEvent",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Add note or event to dispute investigation log",
+        "tags": [
+          "Trust, Ratings & Disputes"
+        ]
+      }
+    },
+    "/v1/admin/disputes/{id}/resolve": {
+      "post": {
+        "operationId": "RatingsController_resolveDispute",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Resolve or dismiss dispute with audit recording",
+        "tags": [
+          "Trust, Ratings & Disputes"
+        ]
+      }
+    },
+    "/v1/admin/overview": {
+      "get": {
+        "operationId": "AdminController_getOverview",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Admin system operational health summary",
+        "tags": [
+          "Admin Console"
+        ]
+      }
+    },
+    "/v1/admin/settings": {
+      "put": {
+        "operationId": "AdminController_updateSetting",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Update dynamic system/region setting",
+        "tags": [
+          "Admin Console"
+        ]
+      }
+    },
+    "/v1/admin/pricing-rules": {
+      "get": {
+        "operationId": "AdminController_listPricingRules",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "List versioned pricing fee structures",
+        "tags": [
+          "Admin Console"
+        ]
+      },
+      "post": {
+        "operationId": "AdminController_createPricingRule",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Create new version of pricing rules (never edited in place)",
+        "tags": [
+          "Admin Console"
+        ]
+      }
+    },
+    "/v1/admin/vehicle-types": {
+      "get": {
+        "operationId": "AdminController_getVehicleTypes",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "List fleet vehicle types",
+        "tags": [
+          "Admin Console"
+        ]
+      },
+      "post": {
+        "operationId": "AdminController_createVehicleType",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Add a new vehicle type to fleet",
+        "tags": [
+          "Admin Console"
+        ]
+      }
+    },
+    "/v1/admin/value-tiers": {
+      "get": {
+        "operationId": "AdminController_getValueTiers",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "List cargo value risk tiers",
+        "tags": [
+          "Admin Console"
+        ]
+      },
+      "post": {
+        "operationId": "AdminController_createValueTier",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Add cargo value tier",
+        "tags": [
+          "Admin Console"
+        ]
+      }
+    },
+    "/v1/admin/service-actions": {
+      "get": {
+        "operationId": "AdminController_getServiceActions",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "List stop actions (buy, pick, drop, move, find)",
+        "tags": [
+          "Admin Console"
+        ]
+      },
+      "post": {
+        "operationId": "AdminController_createServiceAction",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Create service action",
+        "tags": [
+          "Admin Console"
+        ]
+      }
+    },
+    "/v1/admin/load-sizes": {
+      "get": {
+        "operationId": "AdminController_getLoadSizes",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "List cargo load classifications",
+        "tags": [
+          "Admin Console"
+        ]
+      },
+      "post": {
+        "operationId": "AdminController_createLoadSize",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Create cargo load size",
+        "tags": [
+          "Admin Console"
+        ]
+      }
+    },
+    "/v1/admin/escalation-rules": {
+      "get": {
+        "operationId": "AdminController_getEscalationRules",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "List dispatch escalation parameters",
+        "tags": [
+          "Admin Console"
+        ]
+      },
+      "post": {
+        "operationId": "AdminController_createEscalationRule",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Create dispatch escalation rule",
+        "tags": [
+          "Admin Console"
+        ]
+      }
+    },
+    "/v1/admin/roles": {
+      "get": {
+        "operationId": "AdminController_getRoles",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "List RBAC roles",
+        "tags": [
+          "Admin Console"
+        ]
+      }
+    },
+    "/v1/admin/permissions": {
+      "get": {
+        "operationId": "AdminController_getPermissions",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "List RBAC permissions",
+        "tags": [
+          "Admin Console"
+        ]
+      }
+    },
+    "/v1/admin/dashboard/orders": {
+      "get": {
+        "operationId": "AdminController_getOrdersDashboard",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Metrics: orders volume and breakdown by status",
+        "tags": [
+          "Admin Console"
+        ]
+      }
+    },
+    "/v1/admin/dashboard/drivers": {
+      "get": {
+        "operationId": "AdminController_getDriversDashboard",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Fleet metrics: active, online, trial, pending verification",
+        "tags": [
+          "Admin Console"
+        ]
+      }
+    },
+    "/v1/admin/dashboard/subscriptions": {
+      "get": {
+        "operationId": "AdminController_getSubscriptionsDashboard",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Subscription pipeline metrics and expirations",
+        "tags": [
+          "Admin Console"
+        ]
+      }
+    },
+    "/v1/admin/dashboard/disputes": {
+      "get": {
+        "operationId": "AdminController_getDisputesDashboard",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Dispute arbitration queue counts",
+        "tags": [
+          "Admin Console"
+        ]
+      }
+    },
+    "/v1/admin/users": {
+      "get": {
+        "operationId": "AdminController_searchUsers",
+        "parameters": [
+          {
+            "name": "q",
+            "required": false,
+            "in": "query",
+            "schema": {}
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Search users with masked sensitive data",
+        "tags": [
+          "Admin Console"
+        ]
+      }
+    },
+    "/v1/stream": {
+      "get": {
+        "operationId": "RealtimeController_stream",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Authenticated Server-Sent Events stream for realtime platform updates",
+        "tags": [
+          "Realtime SSE Stream"
+        ]
+      }
+    },
+    "/health": {
+      "get": {
+        "operationId": "HealthController_health",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Service is alive"
+          }
+        },
+        "summary": "Liveness probe",
+        "tags": [
+          "Health"
+        ]
+      }
+    },
+    "/ready": {
+      "get": {
+        "operationId": "HealthController_ready",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Service and DB are ready"
+          }
+        },
+        "summary": "Readiness probe",
+        "tags": [
+          "Health"
+        ]
+      }
+    }
+  },
+  "info": {
+    "title": "Wasel API",
+    "description": "Wasel Logistics & Delivery Platform Modular Monolith API",
+    "version": "1.0.0",
+    "contact": {}
+  },
+  "tags": [],
+  "servers": [],
+  "components": {
+    "securitySchemes": {
+      "bearer": {
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "type": "http"
+      },
+      "idempotency-key": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "Idempotency-Key"
+      }
+    },
+    "schemas": {}
+  }
+}

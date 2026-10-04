@@ -23,9 +23,72 @@ export class GlobalExceptionFilter implements ExceptionFilter {
     let status = HttpStatus.INTERNAL_SERVER_ERROR;
     let errorCode = ErrorCode.INTERNAL_ERROR;
     let message = 'حدث خطأ داخلي في الخادم';
+    let i18nKey = 'errors.common.internal_error';
     let details: any = undefined;
 
-    if (exception instanceof HttpException) {
+    const rawError = exception as any;
+
+    // 1. Check for Database Constraints & Custom SQL Exceptions
+    const dbCode = rawError?.code || rawError?.routine;
+    const dbHint = rawError?.hint;
+    const dbMessage = rawError?.message || '';
+
+    if (dbCode === '23514' || dbMessage.includes('check constraint') || dbMessage.includes('check_violation')) {
+      // Dedicated State Machine Transition Guard Check
+      if (dbHint === 'ILLEGAL_TRANSITION' || dbMessage.includes('Illegal status transition for entity')) {
+        status = HttpStatus.CONFLICT;
+        errorCode = ErrorCode.ILLEGAL_TRANSITION;
+        i18nKey = 'errors.state_machine.illegal_transition';
+
+        const match = dbMessage.match(/Illegal status transition for entity (\w+): cannot transition from "([^"]+)" to "([^"]+)"/);
+        if (match) {
+          const [, entity, fromStatus, toStatus] = match;
+          message = `لا يمكن تغيير حالة ${entity} من "${fromStatus}" إلى "${toStatus}"`;
+          details = { entity, fromStatus, toStatus };
+        } else {
+          message = 'الانتقال بين هذه الحالات غير مسموح به في دورة حياة الطلب';
+        }
+      } else if (dbMessage.includes('Agreement terms and snapshot are immutable')) {
+        status = HttpStatus.CONFLICT;
+        errorCode = ErrorCode.AGREEMENT_IMMUTABLE;
+        i18nKey = 'errors.agreements.immutable';
+        message = 'بنود الاتفاقية والشروط مجمدة ولا يمكن تعديلها بعد التثبيت';
+      } else if (dbMessage.includes('Order cannot have more than') || (rawError?.constraint && rawError.constraint.includes('max_stops'))) {
+        status = HttpStatus.BAD_REQUEST;
+        errorCode = ErrorCode.MAX_STOPS_EXCEEDED;
+        i18nKey = 'errors.orders.max_stops_exceeded';
+        message = 'تجاوزت الطلبية الحد الأقصى للمحطات المسموح بها';
+        details = { constraint: 'max_tasks_per_order' };
+      } else {
+        // Standard check violation -> HTTP 400 Validation Error
+        status = HttpStatus.BAD_REQUEST;
+        errorCode = ErrorCode.VALIDATION_ERROR;
+        i18nKey = 'errors.validation.check_violation';
+        const constraintName = rawError?.constraint || 'check_constraint';
+        message = `قيمة الحقل غير مقبولة وتخالف شروط التحقق (${constraintName})`;
+        details = {
+          constraint: constraintName,
+          error: dbMessage,
+        };
+      }
+    } else if (dbCode === '23505' || dbMessage.includes('unique constraint') || dbMessage.includes('unique_violation')) {
+      status = HttpStatus.CONFLICT;
+      const constraintName = rawError?.constraint || '';
+      if (constraintName.includes('agreements_active') || dbMessage.includes('idx_agreements_active_per_order')) {
+        errorCode = ErrorCode.ORDER_ALREADY_AGREED;
+        i18nKey = 'errors.agreements.already_agreed';
+        message = 'تم قبول هذا الطلب وتأكيد الاتفاق مسبقاً مع كابتن آخر';
+      } else if (constraintName.includes('uq_offers_order_driver')) {
+        errorCode = ErrorCode.CONFLICT;
+        i18nKey = 'errors.offers.already_submitted';
+        message = 'لقد قمت بتقديم عرض سعر على هذا الطلب بالفعل';
+      } else {
+        errorCode = ErrorCode.CONFLICT;
+        i18nKey = 'errors.common.conflict';
+        message = 'السجل موجود مسبقاً ويتعارض مع البيانات الحالية';
+      }
+      details = { constraint: constraintName };
+    } else if (exception instanceof HttpException) {
       status = exception.getStatus();
       const res = exception.getResponse();
 
@@ -35,6 +98,7 @@ export class GlobalExceptionFilter implements ExceptionFilter {
         const obj = res as Record<string, any>;
         message = obj.message || obj.error || message;
         errorCode = obj.errorCode || this.mapStatusToErrorCode(status);
+        i18nKey = obj.i18nKey || this.mapStatusToI18nKey(status);
         details = obj.details || obj.errors || undefined;
       }
     } else if (exception instanceof Error) {
@@ -46,6 +110,7 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       statusCode: status,
       errorCode,
       message,
+      i18nKey,
       details,
       timestamp: new Date().toISOString(),
       path: request.url,
@@ -71,6 +136,25 @@ export class GlobalExceptionFilter implements ExceptionFilter {
         return ErrorCode.RATE_LIMITED;
       default:
         return ErrorCode.INTERNAL_ERROR;
+    }
+  }
+
+  private mapStatusToI18nKey(status: number): string {
+    switch (status) {
+      case HttpStatus.BAD_REQUEST:
+        return 'errors.common.bad_request';
+      case HttpStatus.UNAUTHORIZED:
+        return 'errors.auth.unauthorized';
+      case HttpStatus.FORBIDDEN:
+        return 'errors.auth.forbidden';
+      case HttpStatus.NOT_FOUND:
+        return 'errors.common.not_found';
+      case HttpStatus.CONFLICT:
+        return 'errors.common.conflict';
+      case HttpStatus.TOO_MANY_REQUESTS:
+        return 'errors.rate_limit.exceeded';
+      default:
+        return 'errors.common.internal_error';
     }
   }
 }

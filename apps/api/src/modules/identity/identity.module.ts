@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
 import { IdentityService } from './identity.service.js';
 import { IdentityController } from './identity.controller.js';
+import { MeController } from './me.controller.js';
 import { IdentityFacade } from './identity.facade.js';
 import { JwtAuthGuard } from './guards/jwt-auth.guard.js';
 import { PermissionsGuard } from './guards/permissions.guard.js';
@@ -16,7 +17,7 @@ import { OTP_PROVIDER_TOKEN } from '../../common/providers/otp/otp.provider.inte
       signOptions: { expiresIn: '15m' },
     }),
   ],
-  controllers: [IdentityController],
+  controllers: [IdentityController, MeController],
   providers: [
     IdentityService,
     IdentityFacade,
