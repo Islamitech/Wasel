@@ -33,61 +33,66 @@ export class VerificationService {
   ) {}
 
   async upsertDriverProfile(userId: string, dto: DriverProfileCreateDto) {
-    const [existing] = await this.dbService.db
-      .select()
-      .from(driverProfiles)
-      .where(eq(driverProfiles.id, userId))
-      .limit(1);
+    return await this.dbService.transaction(
+      async (tx) => {
+        const [existing] = await tx
+          .select()
+          .from(driverProfiles)
+          .where(eq(driverProfiles.id, userId))
+          .limit(1);
 
-    let profile = existing;
-    if (!existing) {
-      const [created] = await this.dbService.db
-        .insert(driverProfiles)
-        .values({
-          id: userId,
-          regionId: dto.regionId,
-          status: 'pending',
-        })
-        .returning();
-      profile = created;
+        let profile = existing;
+        if (!existing) {
+          const [created] = await tx
+            .insert(driverProfiles)
+            .values({
+              id: userId,
+              regionId: dto.regionId,
+              status: 'pending',
+            })
+            .returning();
+          profile = created;
 
-      // Automatically grant 30-day free trial subscription to new driver
-      const [trialPlan] = await this.dbService.db
-        .select()
-        .from(subscriptionPlans)
-        .where(eq(subscriptionPlans.code, 'trial_30d'))
-        .limit(1);
+          // Automatically grant 30-day free trial subscription to new driver
+          const [trialPlan] = await tx
+            .select()
+            .from(subscriptionPlans)
+            .where(eq(subscriptionPlans.code, 'trial_30d'))
+            .limit(1);
 
-      if (trialPlan) {
-        const startsAt = new Date();
-        const endsAt = new Date(startsAt.getTime() + trialPlan.durationDays * 24 * 60 * 60 * 1000);
-        await this.dbService.db.insert(subscriptions).values({
-          driverId: userId,
-          planId: trialPlan.id,
-          startsAt,
-          endsAt,
-          status: 'active',
-          isTrial: true,
-        });
+          if (trialPlan) {
+            const startsAt = new Date();
+            const endsAt = new Date(startsAt.getTime() + trialPlan.durationDays * 24 * 60 * 60 * 1000);
+            await tx.insert(subscriptions).values({
+              driverId: userId,
+              planId: trialPlan.id,
+              startsAt,
+              endsAt,
+              status: 'active',
+              isTrial: true,
+            });
 
-        await this.auditService.log({
-          userId,
-          action: 'trial_granted',
-          entityType: 'subscriptions',
-          entityId: trialPlan.id,
-          afterState: { driverId: userId, planCode: 'trial_30d', endsAt },
-        });
-      }
-    } else if (dto.regionId) {
-      const [updated] = await this.dbService.db
-        .update(driverProfiles)
-        .set({ regionId: dto.regionId, updatedAt: new Date() })
-        .where(eq(driverProfiles.id, userId))
-        .returning();
-      profile = updated;
-    }
+            await this.auditService.log({
+              userId,
+              action: 'trial_granted',
+              entityType: 'subscriptions',
+              entityId: trialPlan.id,
+              afterState: { driverId: userId, planCode: 'trial_30d', endsAt },
+            });
+          }
+        } else if (dto.regionId) {
+          const [updated] = await tx
+            .update(driverProfiles)
+            .set({ regionId: dto.regionId, updatedAt: new Date() })
+            .where(eq(driverProfiles.id, userId))
+            .returning();
+          profile = updated;
+        }
 
-    return profile;
+        return profile;
+      },
+      { actor: 'driver' },
+    );
   }
 
   async registerVehicle(userId: string, dto: RegisterVehicleDto) {
@@ -124,32 +129,37 @@ export class VerificationService {
   async submitDocument(userId: string, dto: SubmitDocumentDto) {
     await this.upsertDriverProfile(userId, {});
 
-    const [doc] = await this.dbService.db
-      .insert(verificationDocuments)
-      .values({
-        driverId: userId,
-        type: dto.type,
-        storageKey: dto.storageKey,
-        encryptedMetadata: dto.encryptedMetadata,
-        status: 'pending',
-      })
-      .returning();
+    return await this.dbService.transaction(
+      async (tx) => {
+        const [doc] = await tx
+          .insert(verificationDocuments)
+          .values({
+            driverId: userId,
+            type: dto.type,
+            storageKey: dto.storageKey,
+            encryptedMetadata: dto.encryptedMetadata,
+            status: 'pending',
+          })
+          .returning();
 
-    // Advance driver status to under_review if pending or rejected
-    const [profile] = await this.dbService.db
-      .select()
-      .from(driverProfiles)
-      .where(eq(driverProfiles.id, userId))
-      .limit(1);
+        // Advance driver status to under_review if pending or rejected
+        const [profile] = await tx
+          .select()
+          .from(driverProfiles)
+          .where(eq(driverProfiles.id, userId))
+          .limit(1);
 
-    if (profile && (profile.status === 'pending' || profile.status === 'rejected')) {
-      await this.dbService.db
-        .update(driverProfiles)
-        .set({ status: 'under_review', updatedAt: new Date() })
-        .where(eq(driverProfiles.id, userId));
-    }
+        if (profile && (profile.status === 'pending' || profile.status === 'rejected')) {
+          await tx
+            .update(driverProfiles)
+            .set({ status: 'under_review', updatedAt: new Date() })
+            .where(eq(driverProfiles.id, userId));
+        }
 
-    return doc;
+        return doc;
+      },
+      { actor: 'driver' },
+    );
   }
 
   async getVerificationStatus(userId: string) {
@@ -228,109 +238,119 @@ export class VerificationService {
   }
 
   async adminReviewDocument(docId: string, adminUserId: string, dto: AdminReviewVerificationDto) {
-    const [doc] = await this.dbService.db
-      .select()
-      .from(verificationDocuments)
-      .where(eq(verificationDocuments.id, docId))
-      .limit(1);
-
-    if (!doc) {
-      throw new NotFoundException('المستند غير موجود');
-    }
-
-    const [updated] = await this.dbService.db
-      .update(verificationDocuments)
-      .set({
-        status: dto.status,
-        rejectReason: dto.rejectReason || null,
-        reviewedBy: adminUserId,
-        reviewedAt: new Date(),
-        updatedAt: new Date(),
-      })
-      .where(eq(verificationDocuments.id, docId))
-      .returning();
-
-    // If approved, check if driver now satisfies level 1
-    if (dto.status === 'approved') {
-      const allApprovedDocs = await this.dbService.db
-        .select()
-        .from(verificationDocuments)
-        .where(
-          and(
-            eq(verificationDocuments.driverId, doc.driverId),
-            eq(verificationDocuments.status, 'approved'),
-          ),
-        );
-
-      const approvedTypes = allApprovedDocs.map((d) => d.type);
-      const hasBasicKyc =
-        approvedTypes.includes('national_id_front') &&
-        approvedTypes.includes('national_id_back') &&
-        approvedTypes.includes('driver_license');
-
-      if (hasBasicKyc) {
-        const [lvl1] = await this.dbService.db
+    return await this.dbService.transaction(
+      async (tx) => {
+        const [doc] = await tx
           .select()
-          .from(verificationLevels)
-          .where(eq(verificationLevels.code, 'level_1_basic'))
+          .from(verificationDocuments)
+          .where(eq(verificationDocuments.id, docId))
           .limit(1);
 
-        if (lvl1) {
-          await this.dbService.db
-            .update(driverProfiles)
-            .set({
-              status: 'approved',
-              verificationLevelId: lvl1.id,
-              updatedAt: new Date(),
-            })
-            .where(eq(driverProfiles.id, doc.driverId));
+        if (!doc) {
+          throw new NotFoundException('المستند غير موجود');
         }
-      }
-    }
 
-    await this.auditService.log({
-      userId: adminUserId,
-      action: `document_verification_${dto.status}`,
-      entityType: 'verification_documents',
-      entityId: docId,
-      beforeState: { status: doc.status },
-      afterState: { status: dto.status, rejectReason: dto.rejectReason },
-    });
+        const [updated] = await tx
+          .update(verificationDocuments)
+          .set({
+            status: dto.status,
+            rejectReason: dto.rejectReason || null,
+            reviewedBy: adminUserId,
+            reviewedAt: new Date(),
+            updatedAt: new Date(),
+          })
+          .where(eq(verificationDocuments.id, docId))
+          .returning();
 
-    return updated;
+        // If approved, check if driver now satisfies level 1
+        if (dto.status === 'approved') {
+          const allApprovedDocs = await tx
+            .select()
+            .from(verificationDocuments)
+            .where(
+              and(
+                eq(verificationDocuments.driverId, doc.driverId),
+                eq(verificationDocuments.status, 'approved'),
+              ),
+            );
+
+          const approvedTypes = allApprovedDocs.map((d) => d.type);
+          const hasBasicKyc =
+            approvedTypes.includes('national_id_front') &&
+            approvedTypes.includes('national_id_back') &&
+            approvedTypes.includes('driver_license');
+
+          if (hasBasicKyc) {
+            const [lvl1] = await tx
+              .select()
+              .from(verificationLevels)
+              .where(eq(verificationLevels.code, 'level_1_basic'))
+              .limit(1);
+
+            if (lvl1) {
+              await tx
+                .update(driverProfiles)
+                .set({
+                  status: 'approved',
+                  verificationLevelId: lvl1.id,
+                  updatedAt: new Date(),
+                })
+                .where(eq(driverProfiles.id, doc.driverId));
+            }
+          }
+        }
+
+        await this.auditService.log({
+          userId: adminUserId,
+          action: `document_verification_${dto.status}`,
+          entityType: 'verification_documents',
+          entityId: docId,
+          beforeState: { status: doc.status },
+          afterState: { status: dto.status, rejectReason: dto.rejectReason },
+        });
+
+        return updated;
+      },
+      { actor: 'admin' },
+    );
   }
 
   async adminApproveOrRejectDriver(driverId: string, adminUserId: string, approve: boolean, reason?: string, levelId?: string) {
-    const [profile] = await this.dbService.db
-      .select()
-      .from(driverProfiles)
-      .where(eq(driverProfiles.id, driverId))
-      .limit(1);
+    return await this.dbService.transaction(
+      async (tx) => {
+        const [profile] = await tx
+          .select()
+          .from(driverProfiles)
+          .where(eq(driverProfiles.id, driverId))
+          .limit(1);
 
-    if (!profile) {
-      throw new NotFoundException('ملف الكابتن غير موجود');
-    }
+        if (!profile) {
+          throw new NotFoundException('ملف الكابتن غير موجود');
+        }
 
-    const newStatus = approve ? 'approved' : 'rejected';
-    const [updated] = await this.dbService.db
-      .update(driverProfiles)
-      .set({
-        status: newStatus,
-        verificationLevelId: levelId || profile.verificationLevelId,
-        updatedAt: new Date(),
-      })
-      .where(eq(driverProfiles.id, driverId))
-      .returning();
+        const newStatus = approve ? 'approved' : 'rejected';
+        const [updated] = await tx
+          .update(driverProfiles)
+          .set({
+            status: newStatus,
+            verificationLevelId: levelId || profile.verificationLevelId,
+            updatedAt: new Date(),
+          })
+          .where(eq(driverProfiles.id, driverId))
+          .returning();
 
-    await this.auditService.log({
-      userId: adminUserId,
-      action: `driver_${newStatus}`,
-      entityType: 'driver_profiles',
-      entityId: driverId,
-      beforeState: { status: profile.status, levelId: profile.verificationLevelId },
-      afterState: { status: newStatus, reason, levelId },
-    });
+        await this.auditService.log({
+          userId: adminUserId,
+          action: `driver_${newStatus}`,
+          entityType: 'driver_profiles',
+          entityId: driverId,
+          beforeState: { status: profile.status, levelId: profile.verificationLevelId },
+          afterState: { status: newStatus, reason, levelId },
+        });
 
-    return updated;
+        return updated;
+      },
+      { actor: 'admin' },
+    );
   }
 }

@@ -32,10 +32,11 @@ export class SettingsService {
           .where(and(eq(settings.key, key), eq(settings.regionId, regionId)));
 
         if (regionSetting) {
-          const val = (regionSetting.value as any)?.value ?? regionSetting.value;
+          const raw = regionSetting.value as Record<string, unknown> | null;
+          const val = (raw && typeof raw === 'object' && 'value' in raw ? raw.value : regionSetting.value) as T;
           this.cache.set(cacheKey, val);
           this.cacheTtl.set(cacheKey, Date.now());
-          return val as T;
+          return val;
         }
       }
 
@@ -46,10 +47,11 @@ export class SettingsService {
         .where(eq(settings.key, key));
 
       if (globalSetting) {
-        const val = (globalSetting.value as any)?.value ?? globalSetting.value;
+        const raw = globalSetting.value as Record<string, unknown> | null;
+        const val = (raw && typeof raw === 'object' && 'value' in raw ? raw.value : globalSetting.value) as T;
         this.cache.set(cacheKey, val);
         this.cacheTtl.set(cacheKey, Date.now());
-        return val as T;
+        return val;
       }
 
       if (defaultValue !== undefined) {
@@ -57,27 +59,53 @@ export class SettingsService {
       }
 
       throw new Error(`Setting key "${key}" not configured in database`);
-    } catch (err: any) {
+    } catch (err: unknown) {
       if (defaultValue !== undefined) {
         return defaultValue;
       }
-      this.logger.error(`Error reading setting "${key}": ${err.message}`);
+      const msg = err instanceof Error ? err.message : String(err);
+      this.logger.error(`Error reading setting "${key}": ${msg}`);
       throw err;
     }
+  }
+
+  async getOrderTtlMinutes(regionId?: string): Promise<number> {
+    const val = await this.get<number | string>('order_ttl_minutes', regionId, 45);
+    return Number(val) || 45;
+  }
+
+  async getOfferTtlMinutes(regionId?: string): Promise<number> {
+    const val = await this.get<number | string>('offer_ttl_minutes', regionId, 15);
+    return Number(val) || 15;
+  }
+
+  async getOutboxMaxAttempts(): Promise<number> {
+    const val = await this.get<number | string>('outbox_max_attempts', undefined, 5);
+    return Number(val) || 5;
+  }
+
+  async getOutboxRetentionDays(): Promise<number> {
+    const val = await this.get<number | string>('outbox_retention_days', undefined, 7);
+    return Number(val) || 7;
   }
 
   /**
    * Update or set a setting value
    */
-  async set(key: string, value: Record<string, any>, updatedBy?: string, regionId?: string): Promise<void> {
+  async set(key: string, value: Record<string, unknown>, updatedBy?: string, regionId?: string): Promise<void> {
     const cacheKey = `${regionId || 'global'}:${key}`;
     this.cache.delete(cacheKey);
     this.cacheTtl.delete(cacheKey);
 
+    const conditions = [eq(settings.key, key)];
+    if (regionId) {
+      conditions.push(eq(settings.regionId, regionId));
+    }
+
     const existing = await this.dbService.db
       .select()
       .from(settings)
-      .where(and(eq(settings.key, key), regionId ? eq(settings.regionId, regionId) : undefined as any));
+      .where(and(...conditions));
 
     if (existing.length > 0) {
       await this.dbService.db

@@ -18,6 +18,7 @@ import { JwtAuthGuard } from '../identity/index.js';
 import { RolesGuard } from '../../common/guards/roles.guard.js';
 import { Roles } from '../../common/decorators/roles.decorator.js';
 import { CurrentUser } from '../../common/decorators/current-user.decorator.js';
+import { Idempotent } from '../../common/decorators/idempotent.decorator.js';
 import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe.js';
 import {
   CreateOrderSchema,
@@ -41,6 +42,7 @@ export class OrdersController {
   constructor(@Inject(OrdersService) private readonly ordersService: OrdersService) {}
 
   @Post()
+  @Idempotent()
   @Roles(UserRole.CUSTOMER, UserRole.ADMIN)
   @ApiOperation({ summary: 'Create a draft order with sequential stops cart' })
   async createDraftOrder(
@@ -114,6 +116,7 @@ export class OrdersController {
   }
 
   @Post(':id/publish')
+  @Idempotent()
   @Roles(UserRole.CUSTOMER, UserRole.ADMIN)
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Freeze pricing snapshot and publish order for driver dispatch' })
@@ -125,6 +128,7 @@ export class OrdersController {
   }
 
   @Post(':id/cancel')
+  @Idempotent()
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Cancel order with reason' })
   async cancelOrder(

@@ -1,7 +1,23 @@
 import { Injectable, OnModuleInit, OnModuleDestroy, Logger } from '@nestjs/common';
 import postgres from 'postgres';
-import { drizzle, PostgresJsDatabase } from 'drizzle-orm/postgres-js';
+import { drizzle, PostgresJsDatabase, type PostgresJsQueryResultHKT } from 'drizzle-orm/postgres-js';
+import { sql, type ExtractTablesWithRelations } from 'drizzle-orm';
+import type { PgTransaction } from 'drizzle-orm/pg-core';
 import * as schema from './schema/index.js';
+
+export type TransactionActor = 'system' | 'customer' | 'driver' | 'admin' | string;
+
+export interface TransactionOptions {
+  actor?: TransactionActor;
+}
+
+export type DatabaseTransaction = PgTransaction<
+  PostgresJsQueryResultHKT,
+  typeof schema,
+  ExtractTablesWithRelations<typeof schema>
+> & {
+  _afterCommit?: (cb: () => void | Promise<void>) => void;
+};
 
 @Injectable()
 export class DatabaseService implements OnModuleInit, OnModuleDestroy {
@@ -9,18 +25,55 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
   public client?: postgres.Sql;
   public db!: PostgresJsDatabase<typeof schema>;
 
-  private static testDbInstance?: any;
+  private static testDbInstance?: unknown;
 
   /**
    * Test runner hook: allows test harnesses (e.g. test-harness.ts) to inject
    * a test database instance without bundling test dependencies in production.
    */
-  public static setTestDb(db: any): void {
+  public static setTestDb(db: unknown): void {
     DatabaseService.testDbInstance = db;
   }
 
-  public static getTestDb(): any {
+  public static getTestDb(): unknown {
     return DatabaseService.testDbInstance;
+  }
+
+  /**
+   * Execute a database operation within an ACID transaction.
+   * Sets app.actor_role locally for RLS and status transition triggers.
+   * Supports registering afterCommit hooks that fire only upon successful commit.
+   */
+  async transaction<T>(
+    fn: (tx: DatabaseTransaction) => Promise<T>,
+    options?: TransactionOptions,
+  ): Promise<T> {
+    const afterCommitHooks: Array<() => void | Promise<void>> = [];
+
+    const result = await this.db.transaction(async (tx) => {
+      const customTx = tx as DatabaseTransaction;
+      if (options?.actor) {
+        await customTx.execute(sql`SELECT set_config('app.actor_role', ${options.actor}, true)`);
+      }
+
+      customTx._afterCommit = (cb: () => void | Promise<void>) => {
+        afterCommitHooks.push(cb);
+      };
+
+      return await fn(customTx);
+    });
+
+    for (const hook of afterCommitHooks) {
+      try {
+        await hook();
+      } catch (err: unknown) {
+        this.logger.error(
+          `Error executing afterCommit hook: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
+
+    return result;
   }
 
   async onModuleInit() {
@@ -31,7 +84,7 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
 
     // If a test runner has provided a pre-initialized test database, use it (TEST RUNNER ONLY, NEVER IN PRODUCTION)
     if (isTest && DatabaseService.testDbInstance) {
-      this.db = DatabaseService.testDbInstance;
+      this.db = DatabaseService.testDbInstance as PostgresJsDatabase<typeof schema>;
       this.logger.log('✅ Injected test database active [TEST RUNNER ONLY]');
       return;
     }

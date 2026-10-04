@@ -51,21 +51,27 @@ export class RatingsService {
     }
 
     const revieweeId = isCustomer ? agreement.driverId : agreement.customerId;
+    const actor = isCustomer ? 'customer' : 'driver';
 
-    // Insert rating (database trigger trg_ratings_update_aggregates updates profile rating_avg and rating_count)
-    const [rating] = await this.dbService.db
-      .insert(ratings)
-      .values({
-        orderId: agreement.orderId,
-        reviewerId,
-        revieweeId,
-        score: dto.score,
-        tags: dto.tags || [],
-        comment: dto.comment,
-      })
-      .returning();
+    return await this.dbService.transaction(
+      async (tx) => {
+        // Insert rating (database trigger trg_ratings_update_aggregates updates profile rating_avg and rating_count)
+        const [rating] = await tx
+          .insert(ratings)
+          .values({
+            orderId: agreement.orderId,
+            reviewerId,
+            revieweeId,
+            score: dto.score,
+            tags: dto.tags || [],
+            comment: dto.comment,
+          })
+          .returning();
 
-    return rating;
+        return rating;
+      },
+      { actor },
+    );
   }
 
   async getDriverReputation(driverId: string) {
@@ -123,34 +129,39 @@ export class RatingsService {
       throw new NotFoundException('الطلب غير موجود');
     }
 
-    const [dispute] = await this.dbService.db
-      .insert(disputes)
-      .values({
-        orderId: dto.orderId,
-        filedBy: userId,
-        reason: dto.reason,
-        description: dto.description,
-        status: 'opened',
-      })
-      .returning();
+    return await this.dbService.transaction(
+      async (tx) => {
+        const [dispute] = await tx
+          .insert(disputes)
+          .values({
+            orderId: dto.orderId,
+            filedBy: userId,
+            reason: dto.reason,
+            description: dto.description,
+            status: 'opened',
+          })
+          .returning();
 
-    // Advance order to disputed if in_progress
-    if (order.status === 'in_progress') {
-      await this.dbService.db
-        .update(orders)
-        .set({ status: 'disputed', updatedAt: new Date() })
-        .where(eq(orders.id, dto.orderId));
-    }
+        // Advance order to disputed if in_progress
+        if (order.status === 'in_progress') {
+          await tx
+            .update(orders)
+            .set({ status: 'disputed', updatedAt: new Date() })
+            .where(eq(orders.id, dto.orderId));
+        }
 
-    await this.auditService.log({
-      userId,
-      action: 'dispute_filed',
-      entityType: 'disputes',
-      entityId: dispute!.id,
-      afterState: { orderId: dto.orderId, reason: dto.reason },
-    });
+        await this.auditService.log({
+          userId,
+          action: 'dispute_filed',
+          entityType: 'disputes',
+          entityId: dispute!.id,
+          afterState: { orderId: dto.orderId, reason: dto.reason },
+        });
 
-    return dispute;
+        return dispute;
+      },
+      { actor: 'customer' },
+    );
   }
 
   async listDisputes(userId: string, rolesList: string[]) {
@@ -232,38 +243,43 @@ export class RatingsService {
       throw new NotFoundException('النزاع غير موجود');
     }
 
-    const [resolved] = await this.dbService.db
-      .update(disputes)
-      .set({
-        status: dto.resolution,
-        resolvedAt: new Date(),
-        resolutionNotes: dto.resolutionNotes,
-        updatedAt: new Date(),
-      })
-      .where(eq(disputes.id, disputeId))
-      .returning();
+    return await this.dbService.transaction(
+      async (tx) => {
+        const [resolved] = await tx
+          .update(disputes)
+          .set({
+            status: dto.resolution,
+            resolvedAt: new Date(),
+            resolutionNotes: dto.resolutionNotes,
+            updatedAt: new Date(),
+          })
+          .where(eq(disputes.id, disputeId))
+          .returning();
 
-    // Handle order outcome if specified
-    if (dto.orderOutcome === 'complete') {
-      await this.dbService.db
-        .update(orders)
-        .set({ status: 'completed', completedAt: new Date(), updatedAt: new Date() })
-        .where(eq(orders.id, dispute.orderId));
-    } else if (dto.orderOutcome === 'cancel') {
-      await this.dbService.db
-        .update(orders)
-        .set({ status: 'cancelled', cancelReason: `حسم النزاع: ${dto.resolutionNotes}`, updatedAt: new Date() })
-        .where(eq(orders.id, dispute.orderId));
-    }
+        // Handle order outcome if specified
+        if (dto.orderOutcome === 'complete') {
+          await tx
+            .update(orders)
+            .set({ status: 'completed', completedAt: new Date(), updatedAt: new Date() })
+            .where(eq(orders.id, dispute.orderId));
+        } else if (dto.orderOutcome === 'cancel') {
+          await tx
+            .update(orders)
+            .set({ status: 'cancelled', cancelReason: `حسم النزاع: ${dto.resolutionNotes}`, updatedAt: new Date() })
+            .where(eq(orders.id, dispute.orderId));
+        }
 
-    await this.auditService.log({
-      userId: adminUserId,
-      action: `dispute_${dto.resolution}`,
-      entityType: 'disputes',
-      entityId: disputeId,
-      afterState: { resolution: dto.resolution, notes: dto.resolutionNotes, orderOutcome: dto.orderOutcome },
-    });
+        await this.auditService.log({
+          userId: adminUserId,
+          action: `dispute_${dto.resolution}`,
+          entityType: 'disputes',
+          entityId: disputeId,
+          afterState: { resolution: dto.resolution, notes: dto.resolutionNotes, orderOutcome: dto.orderOutcome },
+        });
 
-    return resolved;
+        return resolved;
+      },
+      { actor: 'admin' },
+    );
   }
 }

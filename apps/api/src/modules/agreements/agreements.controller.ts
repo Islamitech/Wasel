@@ -15,6 +15,7 @@ import { JwtAuthGuard } from '../identity/index.js';
 import { RolesGuard } from '../../common/guards/roles.guard.js';
 import { Roles } from '../../common/decorators/roles.decorator.js';
 import { CurrentUser } from '../../common/decorators/current-user.decorator.js';
+import { Idempotent } from '../../common/decorators/idempotent.decorator.js';
 import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe.js';
 import {
   CreateOfferSchema,
@@ -54,6 +55,7 @@ export class AgreementsController {
   // --- Offers Endpoints ---
 
   @Post('orders/:id/offers')
+  @Idempotent()
   @Roles(UserRole.DRIVER, UserRole.ADMIN)
   @ApiOperation({ summary: 'Driver submits quote/offer on a published order' })
   async createOffer(
@@ -75,6 +77,7 @@ export class AgreementsController {
   }
 
   @Post('offers/:id/accept')
+  @Idempotent()
   @Roles(UserRole.CUSTOMER, UserRole.ADMIN)
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Customer accepts a driver offer, creating binding agreement' })
@@ -108,6 +111,7 @@ export class AgreementsController {
   }
 
   @Post('orders/:id/accept')
+  @Idempotent()
   @Roles(UserRole.DRIVER, UserRole.ADMIN)
   @ApiOperation({ summary: 'Driver directly accepts shopping order at guaranteed minimum fare' })
   async driverAcceptShoppingOrder(
@@ -118,6 +122,7 @@ export class AgreementsController {
   }
 
   @Post('orders/:id/assign')
+  @Idempotent()
   @Roles(UserRole.CUSTOMER, UserRole.ADMIN)
   @ApiOperation({ summary: 'Customer directly assigns order to preferred captain' })
   async directAssign(
@@ -161,6 +166,7 @@ export class AgreementsController {
   }
 
   @Post('agreements/:id/cancel')
+  @Idempotent()
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Cancel active agreement with stated reason' })
   async cancelAgreement(
@@ -225,6 +231,7 @@ export class AgreementsController {
   }
 
   @Post('stops/:stopId/invoice')
+  @Idempotent()
   @Roles(UserRole.DRIVER, UserRole.ADMIN)
   @ApiOperation({ summary: 'Record merchant purchase invoice paid by driver' })
   async driverIssueInvoice(
@@ -244,6 +251,7 @@ export class AgreementsController {
   }
 
   @Post('invoices/:id/payment-recorded')
+  @Idempotent()
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Record cash payment settlement between customer and captain' })
   async recordPayment(

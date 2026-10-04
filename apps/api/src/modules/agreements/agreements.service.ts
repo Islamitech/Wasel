@@ -6,7 +6,7 @@ import {
   ForbiddenException,
   ConflictException,
 } from '@nestjs/common';
-import { DatabaseService } from '../../database/database.service.js';
+import { DatabaseService, type DatabaseTransaction } from '../../database/database.service.js';
 import {
   agreements,
   offers,
@@ -24,6 +24,7 @@ import { normalizePoint } from '../../common/geo/index.js';
 import { SubscriptionsFacade } from '../subscriptions/index.js';
 import { VerificationFacade } from '../verification/index.js';
 import { EventBusService } from '../../common/events/event-bus.service.js';
+import { SettingsService } from '../../common/settings/settings.service.js';
 import { AuditService } from '../audit/index.js';
 import {
   CreateOfferDto,
@@ -46,6 +47,7 @@ export class AgreementsService {
     @Inject(SubscriptionsFacade) private readonly subsFacade: SubscriptionsFacade,
     @Inject(VerificationFacade) private readonly verificationFacade: VerificationFacade,
     @Inject(EventBusService) private readonly eventBus: EventBusService,
+    @Inject(SettingsService) private readonly settingsService: SettingsService,
     @Inject(AuditService) private readonly auditService: AuditService,
   ) {}
 
@@ -72,6 +74,14 @@ export class AgreementsService {
       throw new NotFoundException('الطلب غير موجود');
     }
 
+    // Rule D-05: Driver cannot bid on their own order
+    if (order.customerId === driverId) {
+      throw new BadRequestException({
+        errorCode: ErrorCode.SELF_ASSIGNMENT_FORBIDDEN,
+        message: 'لا يمكن للكابتن تقديم عرض سعر على طلبه الخاص',
+      });
+    }
+
     if (!['published', 'matching', 'offers_received'].includes(order.status)) {
       throw new ConflictException({
         errorCode: ErrorCode.ILLEGAL_TRANSITION,
@@ -91,59 +101,66 @@ export class AgreementsService {
       });
     }
 
-    // 4. Upsert Offer
-    const expiresAt = new Date(Date.now() + 15 * 60 * 1000); // 15 min expiry
-    const [existing] = await this.dbService.db
-      .select()
-      .from(offers)
-      .where(and(eq(offers.orderId, orderId), eq(offers.driverId, driverId)))
-      .limit(1);
+    // 4. Dynamic offer expiry from settings
+    const offerTtlMinutes = await this.settingsService.getOfferTtlMinutes(order.regionId);
+    const expiresAt = new Date(Date.now() + offerTtlMinutes * 60 * 1000);
 
-    let offerRecord = existing;
-    if (existing) {
-      const [updated] = await this.dbService.db
-        .update(offers)
-        .set({
-          offeredFareMinor: dto.offeredFareMinor,
-          notes: dto.notes,
-          status: 'pending',
-          expiresAt,
-          updatedAt: new Date(),
-        })
-        .where(eq(offers.id, existing.id))
-        .returning();
-      offerRecord = updated;
-    } else {
-      const [created] = await this.dbService.db
-        .insert(offers)
-        .values({
+    return await this.dbService.transaction(
+      async (tx) => {
+        const [existing] = await tx
+          .select()
+          .from(offers)
+          .where(and(eq(offers.orderId, orderId), eq(offers.driverId, driverId)))
+          .limit(1);
+
+        let offerRecord = existing;
+        if (existing) {
+          const [updated] = await tx
+            .update(offers)
+            .set({
+              offeredFareMinor: dto.offeredFareMinor,
+              notes: dto.notes,
+              status: 'pending',
+              expiresAt,
+              updatedAt: new Date(),
+            })
+            .where(eq(offers.id, existing.id))
+            .returning();
+          offerRecord = updated;
+        } else {
+          const [created] = await tx
+            .insert(offers)
+            .values({
+              orderId,
+              driverId,
+              offeredFareMinor: dto.offeredFareMinor,
+              notes: dto.notes,
+              status: 'pending',
+              expiresAt,
+            })
+            .returning();
+          offerRecord = created;
+        }
+
+        // Advance order to offers_received if in published/matching
+        if (order.status === 'published' || order.status === 'matching') {
+          await tx
+            .update(orders)
+            .set({ status: 'offers_received', updatedAt: new Date() })
+            .where(eq(orders.id, orderId));
+        }
+
+        await this.eventBus.publish(tx, 'offer.created', offerRecord!.id, {
+          offerId: offerRecord!.id,
           orderId,
           driverId,
           offeredFareMinor: dto.offeredFareMinor,
-          notes: dto.notes,
-          status: 'pending',
-          expiresAt,
-        })
-        .returning();
-      offerRecord = created;
-    }
+        });
 
-    // Advance order to offers_received if in published/matching
-    if (order.status === 'published' || order.status === 'matching') {
-      await this.dbService.db
-        .update(orders)
-        .set({ status: 'offers_received', updatedAt: new Date() })
-        .where(eq(orders.id, orderId));
-    }
-
-    await this.eventBus.publish('offer.created', offerRecord!.id, {
-      offerId: offerRecord!.id,
-      orderId,
-      driverId,
-      offeredFareMinor: dto.offeredFareMinor,
-    });
-
-    return offerRecord;
+        return offerRecord;
+      },
+      { actor: 'driver' },
+    );
   }
 
   async getOrderOffers(orderId: string, userId: string, rolesList: string[]) {
@@ -195,78 +212,132 @@ export class AgreementsService {
   }
 
   async acceptOffer(offerId: string, customerId: string) {
-    const [offer] = await this.dbService.db
-      .select()
-      .from(offers)
-      .where(eq(offers.id, offerId))
-      .limit(1);
+    return await this.dbService.transaction(
+      async (tx) => {
+        const [offer] = await tx
+          .select()
+          .from(offers)
+          .where(eq(offers.id, offerId))
+          .limit(1);
 
-    if (!offer) {
-      throw new NotFoundException('عرض السعر غير موجود');
-    }
+        if (!offer) {
+          throw new NotFoundException('عرض السعر غير موجود');
+        }
 
-    const [order] = await this.dbService.db
-      .select()
-      .from(orders)
-      .where(eq(orders.id, offer.orderId))
-      .limit(1);
+        if (offer.status !== 'pending') {
+          throw new ConflictException({
+            errorCode: ErrorCode.ILLEGAL_TRANSITION,
+            message: 'عرض السعر لم يعد متاحاً للقبول',
+          });
+        }
 
-    if (!order) {
-      throw new NotFoundException('الطلب غير موجود');
-    }
+        if (new Date(offer.expiresAt) < new Date()) {
+          throw new ConflictException({
+            errorCode: ErrorCode.OFFER_EXPIRED,
+            message: 'انتهت صلاحية هذا العرض، يرجى طلب عرض جديد من الكابتن',
+          });
+        }
 
-    if (order.customerId !== customerId) {
-      throw new ForbiddenException({
-        errorCode: ErrorCode.OWNERSHIP_VIOLATION,
-        message: 'غير مصرح لك بقبول هذا العرض (ليس طلبك)',
-      });
-    }
+        // Lock order row explicitly
+        const [order] = await tx
+          .select()
+          .from(orders)
+          .where(eq(orders.id, offer.orderId))
+          .for('update');
 
-    if (order.status === 'agreed' || order.status === 'in_progress' || order.status === 'completed') {
-      throw new ConflictException({
-        errorCode: ErrorCode.ORDER_ALREADY_AGREED,
-        message: 'تم الاتفاق على هذا الطلب بالفعل مسبقاً',
-      });
-    }
+        if (!order) {
+          throw new NotFoundException('الطلب غير موجود');
+        }
 
-    if (new Date(offer.expiresAt) < new Date()) {
-      throw new ConflictException({
-        errorCode: ErrorCode.OFFER_EXPIRED,
-        message: 'انتهت صلاحية هذا العرض، يرجى طلب عرض جديد من الكابتن',
-      });
-    }
+        if (order.customerId !== customerId) {
+          throw new ForbiddenException({
+            errorCode: ErrorCode.OWNERSHIP_VIOLATION,
+            message: 'غير مصرح لك بقبول هذا العرض (ليس طلبك)',
+          });
+        }
 
-    return this.createAgreementInternal(order, offer.driverId, offer.offeredFareMinor, offer.id);
+        if (order.status === 'agreed' || order.status === 'in_progress' || order.status === 'completed') {
+          throw new ConflictException({
+            errorCode: ErrorCode.ORDER_ALREADY_AGREED,
+            message: 'تم الاتفاق على هذا الطلب بالفعل مسبقاً',
+          });
+        }
+
+        if (order.status === 'expired' || (order.expiresAt && new Date(order.expiresAt) < new Date())) {
+          throw new ConflictException({
+            errorCode: ErrorCode.ORDER_EXPIRED,
+            message: 'انتهت صلاحية هذا الطلب ولا يمكن قبوله',
+          });
+        }
+
+        // Rule D-05: Driver != Customer
+        if (offer.driverId === customerId) {
+          throw new BadRequestException({
+            errorCode: ErrorCode.SELF_ASSIGNMENT_FORBIDDEN,
+            message: 'لا يمكن قبول عرض من نفس صاحب الطلب',
+          });
+        }
+
+        // Real-time verification at acceptance moment
+        const isSubscribed = await this.subsFacade.isDriverSubscribed(offer.driverId, tx);
+        if (!isSubscribed) {
+          throw new ForbiddenException({
+            errorCode: ErrorCode.SUBSCRIPTION_REQUIRED,
+            message: 'اشتراك الكابتن غير سارٍ حالياً، لا يمكن قبول العرض',
+          });
+        }
+
+        const isEligible = await this.verificationFacade.isDriverEligibleForValueTier(
+          offer.driverId,
+          order.valueTierId,
+          tx,
+        );
+        if (!isEligible) {
+          throw new ForbiddenException({
+            errorCode: ErrorCode.DRIVER_NOT_ELIGIBLE,
+            message: 'مستوى توثيق الكابتن لا يسمح بقبول طلبات بهذه القيمة المالية',
+          });
+        }
+
+        return await this.createAgreementInternal(tx, order, offer.driverId, offer.offeredFareMinor, offer.id);
+      },
+      { actor: 'customer' },
+    );
   }
 
   async rejectOffer(offerId: string, customerId: string) {
-    const [offer] = await this.dbService.db
-      .select()
-      .from(offers)
-      .where(eq(offers.id, offerId))
-      .limit(1);
+    return await this.dbService.transaction(
+      async (tx) => {
+        const [offer] = await tx
+          .select()
+          .from(offers)
+          .where(eq(offers.id, offerId))
+          .limit(1);
 
-    if (!offer) {
-      throw new NotFoundException('عرض السعر غير موجود');
-    }
+        if (!offer) {
+          throw new NotFoundException('عرض السعر غير موجود');
+        }
 
-    const [order] = await this.dbService.db
-      .select()
-      .from(orders)
-      .where(eq(orders.id, offer.orderId))
-      .limit(1);
+        const [order] = await tx
+          .select()
+          .from(orders)
+          .where(eq(orders.id, offer.orderId))
+          .limit(1);
 
-    if (order && order.customerId !== customerId) {
-      throw new ForbiddenException('غير مصرح لك برفض هذا العرض');
-    }
+        if (order && order.customerId !== customerId) {
+          throw new ForbiddenException('غير مصرح لك برفض هذا العرض');
+        }
 
-    const [updated] = await this.dbService.db
-      .update(offers)
-      .set({ status: 'rejected', updatedAt: new Date() })
-      .where(eq(offers.id, offerId))
-      .returning();
+        const [updated] = await tx
+          .update(offers)
+          .set({ status: 'rejected', updatedAt: new Date() })
+          .where(eq(offers.id, offerId))
+          .returning();
 
-    return updated;
+        return updated;
+      },
+      { actor: 'customer' },
+    );
   }
 
   async counterOffer(offerId: string, userId: string, dto: CounterOfferDto) {
@@ -286,90 +357,201 @@ export class AgreementsService {
       .where(eq(orders.id, offer.orderId))
       .limit(1);
 
-    if (order && order.customerId !== userId && offer.driverId !== userId) {
-      throw new ForbiddenException('غير مصرح لك بتقديم عرض مضاد');
-    }
-
-    const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
-    const [updated] = await this.dbService.db
-      .update(offers)
-      .set({
-        offeredFareMinor: dto.counterFareMinor,
-        notes: dto.notes,
-        status: 'countered',
-        expiresAt,
-        updatedAt: new Date(),
-      })
-      .where(eq(offers.id, offerId))
-      .returning();
-
-    return updated;
-  }
-
-  async driverAcceptShoppingOrder(orderId: string, driverId: string) {
-    // 1. Subscription check
-    const isSubscribed = await this.subsFacade.isDriverSubscribed(driverId);
-    if (!isSubscribed) {
-      throw new ForbiddenException({
-        errorCode: ErrorCode.SUBSCRIPTION_REQUIRED,
-        message: 'يجب تفعيل اشتراك ساري لقبول الطلبات',
-      });
-    }
-
-    const [order] = await this.dbService.db
-      .select()
-      .from(orders)
-      .where(eq(orders.id, orderId))
-      .limit(1);
-
     if (!order) {
       throw new NotFoundException('الطلب غير موجود');
     }
 
-    if (order.status === 'agreed') {
-      throw new ConflictException({
-        errorCode: ErrorCode.ORDER_ALREADY_AGREED,
-        message: 'تم قبول هذا الطلب مسبقاً من قِبل كابتن آخر',
-      });
+    const isCustomer = order.customerId === userId;
+    const isDriver = offer.driverId === userId;
+
+    if (!isCustomer && !isDriver) {
+      throw new ForbiddenException('غير مصرح لك بتقديم عرض مضاد');
     }
 
-    const isEligible = await this.verificationFacade.isDriverEligibleForValueTier(
-      driverId,
-      order.valueTierId,
+    const offerTtlMinutes = await this.settingsService.getOfferTtlMinutes(order.regionId);
+    const expiresAt = new Date(Date.now() + offerTtlMinutes * 60 * 1000);
+
+    return await this.dbService.transaction(
+      async (tx) => {
+        const [updated] = await tx
+          .update(offers)
+          .set({
+            offeredFareMinor: dto.counterFareMinor,
+            notes: dto.notes,
+            status: 'countered',
+            expiresAt,
+            updatedAt: new Date(),
+          })
+          .where(eq(offers.id, offerId))
+          .returning();
+
+        return updated;
+      },
+      { actor: isCustomer ? 'customer' : 'driver' },
     );
-    if (!isEligible) {
-      throw new ForbiddenException({
-        errorCode: ErrorCode.VERIFICATION_LEVEL_TOO_LOW,
-        message: 'مستوى توثيق الكابتن لا يسمح بقبول هذا الطلب',
-      });
-    }
+  }
 
-    return this.createAgreementInternal(order, driverId, order.minFareMinor);
+  async driverAcceptShoppingOrder(orderId: string, driverId: string) {
+    return await this.dbService.transaction(
+      async (tx) => {
+        // Lock order row explicitly
+        const [order] = await tx
+          .select()
+          .from(orders)
+          .where(eq(orders.id, orderId))
+          .for('update');
+
+        if (!order) {
+          throw new NotFoundException('الطلب غير موجود');
+        }
+
+        // Rule D-05: Driver != Customer
+        if (order.customerId === driverId) {
+          throw new BadRequestException({
+            errorCode: ErrorCode.SELF_ASSIGNMENT_FORBIDDEN,
+            message: 'لا يمكن للكابتن قبول طلبه الخاص',
+          });
+        }
+
+        if (order.status === 'agreed' || order.status === 'in_progress' || order.status === 'completed') {
+          throw new ConflictException({
+            errorCode: ErrorCode.ORDER_ALREADY_AGREED,
+            message: 'تم قبول هذا الطلب مسبقاً من قِبل كابتن آخر',
+          });
+        }
+
+        if (order.status === 'expired' || (order.expiresAt && new Date(order.expiresAt) < new Date())) {
+          throw new ConflictException({
+            errorCode: ErrorCode.ORDER_EXPIRED,
+            message: 'انتهت صلاحية هذا الطلب ولا يمكن قبوله',
+          });
+        }
+
+        if (order.status !== 'published' && order.status !== 'matching') {
+          throw new ConflictException({
+            errorCode: ErrorCode.ILLEGAL_TRANSITION,
+            message: 'هذا الطلب غير متاح للقبول المباشر',
+          });
+        }
+
+        // Real-time verification
+        const isSubscribed = await this.subsFacade.isDriverSubscribed(driverId, tx);
+        if (!isSubscribed) {
+          throw new ForbiddenException({
+            errorCode: ErrorCode.SUBSCRIPTION_REQUIRED,
+            message: 'يجب تفعيل اشتراك ساري لقبول الطلبات',
+          });
+        }
+
+        const isEligible = await this.verificationFacade.isDriverEligibleForValueTier(
+          driverId,
+          order.valueTierId,
+          tx,
+        );
+        if (!isEligible) {
+          throw new ForbiddenException({
+            errorCode: ErrorCode.DRIVER_NOT_ELIGIBLE,
+            message: 'مستوى توثيق الكابتن لا يسمح بقبول هذا الطلب',
+          });
+        }
+
+        return await this.createAgreementInternal(tx, order, driverId, order.minFareMinor);
+      },
+      { actor: 'driver' },
+    );
   }
 
   async directAssign(orderId: string, customerId: string, targetDriverId: string) {
-    const [order] = await this.dbService.db
-      .select()
-      .from(orders)
-      .where(eq(orders.id, orderId))
-      .limit(1);
+    return await this.dbService.transaction(
+      async (tx) => {
+        // Lock order row explicitly
+        const [order] = await tx
+          .select()
+          .from(orders)
+          .where(eq(orders.id, orderId))
+          .for('update');
 
-    if (!order || order.customerId !== customerId) {
-      throw new ForbiddenException('غير مصرح لك بتعيين هذا الطلب');
-    }
+        if (!order || order.customerId !== customerId) {
+          throw new ForbiddenException('غير مصرح لك بتعيين هذا الطلب');
+        }
 
-    return this.createAgreementInternal(order, targetDriverId, order.minFareMinor);
+        // Rule D-05: Customer != Driver
+        if (targetDriverId === customerId) {
+          throw new BadRequestException({
+            errorCode: ErrorCode.SELF_ASSIGNMENT_FORBIDDEN,
+            message: 'لا يمكن تعيين الطلب لنفسك',
+          });
+        }
+
+        if (order.status === 'agreed' || order.status === 'in_progress' || order.status === 'completed') {
+          throw new ConflictException({
+            errorCode: ErrorCode.ORDER_ALREADY_AGREED,
+            message: 'تم الاتفاق على هذا الطلب بالفعل مسبقاً',
+          });
+        }
+
+        if (order.status === 'expired' || (order.expiresAt && new Date(order.expiresAt) < new Date())) {
+          throw new ConflictException({
+            errorCode: ErrorCode.ORDER_EXPIRED,
+            message: 'انتهت صلاحية هذا الطلب ولا يمكن تعيينه',
+          });
+        }
+
+        const [targetDriver] = await tx
+          .select()
+          .from(driverProfiles)
+          .where(eq(driverProfiles.id, targetDriverId))
+          .limit(1);
+
+        if (!targetDriver || targetDriver.status !== 'approved') {
+          throw new BadRequestException({
+            errorCode: ErrorCode.DRIVER_NOT_ELIGIBLE,
+            message: 'الكابتن المحدد غير متاح أو غير معتمد',
+          });
+        }
+
+        const isSubscribed = await this.subsFacade.isDriverSubscribed(targetDriverId, tx);
+        if (!isSubscribed) {
+          throw new ForbiddenException({
+            errorCode: ErrorCode.SUBSCRIPTION_REQUIRED,
+            message: 'اشتراك الكابتن المحدد غير سارٍ',
+          });
+        }
+
+        const isEligible = await this.verificationFacade.isDriverEligibleForValueTier(
+          targetDriverId,
+          order.valueTierId,
+          tx,
+        );
+        if (!isEligible) {
+          throw new ForbiddenException({
+            errorCode: ErrorCode.DRIVER_NOT_ELIGIBLE,
+            message: 'مستوى توثيق الكابتن لا يسمح بقبول هذا الطلب',
+          });
+        }
+
+        return await this.createAgreementInternal(tx, order, targetDriverId, order.minFareMinor);
+      },
+      { actor: 'customer' },
+    );
   }
 
   // --- Core Agreement Creation & Immutability ---
 
   private async createAgreementInternal(
-    order: any,
+    tx: DatabaseTransaction,
+    order: {
+      id: string;
+      customerId: string;
+      valueTierId?: string | null;
+      loadSizeId?: string | null;
+      waitMode?: string | null;
+    },
     driverId: string,
     agreedFareMinor: number,
     winningOfferId?: string,
   ) {
-    const orderStops = await this.dbService.db
+    const orderStops = await tx
       .select()
       .from(stops)
       .where(eq(stops.orderId, order.id))
@@ -397,14 +579,8 @@ export class AgreementsService {
 
     const lockedAt = new Date();
 
-    // Advance order to agreed (enforces DB state machine transition guard trigger)
-    await this.dbService.db
-      .update(orders)
-      .set({ status: 'agreed', updatedAt: new Date() })
-      .where(eq(orders.id, order.id));
-
-    // Insert agreement (database partial unique index idx_agreements_active_per_order guarantees race safety)
-    const [agreement] = await this.dbService.db
+    // 1. Insert agreement FIRST (database partial unique index idx_agreements_active_per_order guarantees race safety)
+    const [agreement] = await tx
       .insert(agreements)
       .values({
         orderId: order.id,
@@ -417,26 +593,32 @@ export class AgreementsService {
       })
       .returning();
 
-    // Reject all other competing offers
+    // 2. Advance order to agreed (enforces DB state machine transition guard trigger)
+    await tx
+      .update(orders)
+      .set({ status: 'agreed', updatedAt: new Date() })
+      .where(eq(orders.id, order.id));
+
+    // 3. Reject all other competing offers
     if (winningOfferId) {
-      await this.dbService.db
+      await tx
         .update(offers)
         .set({ status: 'accepted', updatedAt: new Date() })
         .where(eq(offers.id, winningOfferId));
 
-      await this.dbService.db
+      await tx
         .update(offers)
         .set({ status: 'rejected', updatedAt: new Date() })
         .where(and(eq(offers.orderId, order.id), sql`${offers.id} <> ${winningOfferId}::uuid`));
     } else {
-      await this.dbService.db
+      await tx
         .update(offers)
         .set({ status: 'rejected', updatedAt: new Date() })
-        .where(eq(offers.orderId, order.id));
+        .where(and(eq(offers.orderId, order.id), eq(offers.status, 'pending')));
     }
 
-    // Transactional outbox event
-    await this.eventBus.publish('agreement.created', agreement!.id, {
+    // 4. Transactional outbox event inside tx
+    await this.eventBus.publish(tx, 'agreement.created', agreement!.id, {
       agreementId: agreement!.id,
       orderId: order.id,
       customerId: order.customerId,
@@ -594,27 +776,34 @@ export class AgreementsService {
       throw new ForbiddenException('غير مصرح لك بإلغاء هذا الاتفاق');
     }
 
-    // Cancel agreement & order
-    const [cancelled] = await this.dbService.db
-      .update(agreements)
-      .set({ status: 'cancelled', updatedAt: new Date() })
-      .where(eq(agreements.id, agreementId))
-      .returning();
+    const actor = isAdmin ? 'admin' : isCustomer ? 'customer' : 'driver';
 
-    await this.dbService.db
-      .update(orders)
-      .set({ status: 'cancelled', cancelReason: dto.reason, updatedAt: new Date() })
-      .where(eq(orders.id, agreement.orderId));
+    return await this.dbService.transaction(
+      async (tx) => {
+        // Cancel agreement & order atomically
+        const [cancelled] = await tx
+          .update(agreements)
+          .set({ status: 'cancelled', updatedAt: new Date() })
+          .where(eq(agreements.id, agreementId))
+          .returning();
 
-    await this.auditService.log({
-      userId,
-      action: 'agreement_cancelled',
-      entityType: 'agreements',
-      entityId: agreementId,
-      afterState: { reason: dto.reason },
-    });
+        await tx
+          .update(orders)
+          .set({ status: 'cancelled', cancelReason: dto.reason, updatedAt: new Date() })
+          .where(eq(orders.id, agreement.orderId));
 
-    return cancelled;
+        await this.auditService.log({
+          userId,
+          action: 'agreement_cancelled',
+          entityType: 'agreements',
+          entityId: agreementId,
+          afterState: { reason: dto.reason },
+        });
+
+        return cancelled;
+      },
+      { actor },
+    );
   }
 
   // --- Trip Execution Domain ---
@@ -640,36 +829,41 @@ export class AgreementsService {
       throw new NotFoundException('المحطة غير موجودة');
     }
 
-    // Insert stop_visit record
-    const [existingVisits] = await this.dbService.db
-      .select({ count: sql`count(*)` })
-      .from(stopVisits)
-      .where(eq(stopVisits.stopId, stopId));
+    return await this.dbService.transaction(
+      async (tx) => {
+        // Insert stop_visit record
+        const [existingVisits] = await tx
+          .select({ count: sql`count(*)` })
+          .from(stopVisits)
+          .where(eq(stopVisits.stopId, stopId));
 
-    const visitSeq = Number((existingVisits as any)?.count || 0) + 1;
+        const visitSeq = Number((existingVisits as any)?.count || 0) + 1;
 
-    const [visit] = await this.dbService.db
-      .insert(stopVisits)
-      .values({
-        orderId: agreement.orderId,
-        stopId,
-        driverId,
-        visitSeq,
-        arrivedAt: new Date(),
-      })
-      .returning();
+        const [visit] = await tx
+          .insert(stopVisits)
+          .values({
+            orderId: agreement.orderId,
+            stopId,
+            driverId,
+            visitSeq,
+            arrivedAt: new Date(),
+          })
+          .returning();
 
-    // Distance calculation & mismatch flag (without blocking)
-    const distanceMeters = dto?.location?.latitude && dto?.location?.longitude ? 35 : 0;
-    const isLocationMismatch = distanceMeters > 100;
+        // Distance calculation & mismatch flag (without blocking)
+        const distanceMeters = dto?.location?.latitude && dto?.location?.longitude ? 35 : 0;
+        const isLocationMismatch = distanceMeters > 100;
 
-    return {
-      stopVisitId: visit!.id,
-      stopId,
-      arrivedAt: visit!.arrivedAt.toISOString(),
-      distanceMeters,
-      isLocationMismatch,
-    };
+        return {
+          stopVisitId: visit!.id,
+          stopId,
+          arrivedAt: visit!.arrivedAt.toISOString(),
+          distanceMeters,
+          isLocationMismatch,
+        };
+      },
+      { actor: 'driver' },
+    );
   }
 
   async driverStartWait(agreementId: string, stopId: string, driverId: string) {
@@ -759,26 +953,31 @@ export class AgreementsService {
       throw new ForbiddenException('غير مصرح لك بإصدار فاتورة لهذا الطلب');
     }
 
-    const [invoice] = await this.dbService.db
-      .insert(invoices)
-      .values({
-        orderId: stop.orderId,
-        stopId,
-        invoiceNumber: dto.invoiceNumber,
-        amountMinor: dto.amountMinor,
-        photoKey: dto.photoKey,
-        customerNote: dto.customerNote,
-        verifiedByCustomer: false,
-      })
-      .returning();
+    return await this.dbService.transaction(
+      async (tx) => {
+        const [invoice] = await tx
+          .insert(invoices)
+          .values({
+            orderId: stop.orderId,
+            stopId,
+            invoiceNumber: dto.invoiceNumber,
+            amountMinor: dto.amountMinor,
+            photoKey: dto.photoKey,
+            customerNote: dto.customerNote,
+            verifiedByCustomer: false,
+          })
+          .returning();
 
-    await this.eventBus.publish('invoice.issued', invoice!.id, {
-      invoiceId: invoice!.id,
-      orderId: stop.orderId,
-      amountMinor: dto.amountMinor,
-    });
+        await this.eventBus.publish(tx, 'invoice.issued', invoice!.id, {
+          invoiceId: invoice!.id,
+          orderId: stop.orderId,
+          amountMinor: dto.amountMinor,
+        });
 
-    return invoice;
+        return invoice;
+      },
+      { actor: 'driver' },
+    );
   }
 
   async recordPayment(invoiceId: string, userId: string, dto: RecordPaymentReceiptDto) {
@@ -792,23 +991,28 @@ export class AgreementsService {
       throw new NotFoundException('الفاتورة غير موجودة');
     }
 
-    const [receipt] = await this.dbService.db
-      .insert(paymentReceipts)
-      .values({
-        orderId: invoice.orderId,
-        collectedAmountMinor: dto.collectedAmountMinor,
-        receiptType: dto.receiptType || 'cash',
-        notes: dto.notes ? `${dto.notes} (مسجل بواسطة: ${userId})` : `مسجل بواسطة: ${userId}`,
-      })
-      .returning();
+    return await this.dbService.transaction(
+      async (tx) => {
+        const [receipt] = await tx
+          .insert(paymentReceipts)
+          .values({
+            orderId: invoice.orderId,
+            collectedAmountMinor: dto.collectedAmountMinor,
+            receiptType: dto.receiptType || 'cash',
+            notes: dto.notes ? `${dto.notes} (مسجل بواسطة: ${userId})` : `مسجل بواسطة: ${userId}`,
+          })
+          .returning();
 
-    // Mark invoice verified
-    await this.dbService.db
-      .update(invoices)
-      .set({ verifiedByCustomer: true, updatedAt: new Date() })
-      .where(eq(invoices.id, invoiceId));
+        // Mark invoice verified
+        await tx
+          .update(invoices)
+          .set({ verifiedByCustomer: true, updatedAt: new Date() })
+          .where(eq(invoices.id, invoiceId));
 
-    return receipt;
+        return receipt;
+      },
+      { actor: 'customer' },
+    );
   }
 
   async disputeInvoice(invoiceId: string, customerId: string, dto: DisputeInvoiceDto) {
@@ -832,17 +1036,22 @@ export class AgreementsService {
       throw new ForbiddenException('غير مصرح لك بالاعتراض على هذه الفاتورة');
     }
 
-    const [updated] = await this.dbService.db
-      .update(invoices)
-      .set({
-        verifiedByCustomer: false,
-        customerNote: dto.reason,
-        updatedAt: new Date(),
-      })
-      .where(eq(invoices.id, invoiceId))
-      .returning();
+    return await this.dbService.transaction(
+      async (tx) => {
+        const [updated] = await tx
+          .update(invoices)
+          .set({
+            verifiedByCustomer: false,
+            customerNote: dto.reason,
+            updatedAt: new Date(),
+          })
+          .where(eq(invoices.id, invoiceId))
+          .returning();
 
-    return updated;
+        return updated;
+      },
+      { actor: 'customer' },
+    );
   }
 
   async driverCompleteStop(agreementId: string, stopId: string, driverId: string) {
@@ -856,18 +1065,23 @@ export class AgreementsService {
       throw new ForbiddenException('الاتفاق غير موجود');
     }
 
-    await this.dbService.db
-      .update(stops)
-      .set({ status: 'completed', updatedAt: new Date() })
-      .where(eq(stops.id, stopId));
+    return await this.dbService.transaction(
+      async (tx) => {
+        await tx
+          .update(stops)
+          .set({ status: 'completed', updatedAt: new Date() })
+          .where(eq(stops.id, stopId));
 
-    // Advance order to in_progress if still agreed
-    await this.dbService.db
-      .update(orders)
-      .set({ status: 'in_progress', updatedAt: new Date() })
-      .where(and(eq(orders.id, agreement.orderId), eq(orders.status, 'agreed')));
+        // Advance order to in_progress if still agreed
+        await tx
+          .update(orders)
+          .set({ status: 'in_progress', updatedAt: new Date() })
+          .where(and(eq(orders.id, agreement.orderId), eq(orders.status, 'agreed')));
 
-    return { success: true, message: 'تم إنجاز المحطة بنجاح' };
+        return { success: true, message: 'تم إنجاز المحطة بنجاح' };
+      },
+      { actor: 'driver' },
+    );
   }
 
   async driverCompleteAgreement(agreementId: string, driverId: string) {
@@ -883,63 +1097,68 @@ export class AgreementsService {
 
     const orderId = agreement.orderId;
 
-    // Call database SQL function app.calculate_final_fare directly
-    const fareRes = await this.dbService.db.execute<any>(
-      sql`SELECT app.calculate_final_fare(${orderId}::uuid) AS final_fare`,
+    return await this.dbService.transaction(
+      async (tx) => {
+        // Call database SQL function app.calculate_final_fare directly
+        const fareRes = await tx.execute<any>(
+          sql`SELECT app.calculate_final_fare(${orderId}::uuid) AS final_fare`,
+        );
+
+        const row = fareRes[0] || (fareRes as any).rows?.[0] || {};
+        const finalFareMinor = Number(row.final_fare || agreement.agreedFareMinor);
+
+        // Update agreement status to fulfilled
+        await tx
+          .update(agreements)
+          .set({ status: 'fulfilled', updatedAt: new Date() })
+          .where(eq(agreements.id, agreementId));
+
+        // Update order status to completed
+        await tx
+          .update(orders)
+          .set({ status: 'completed', completedAt: new Date(), updatedAt: new Date() })
+          .where(eq(orders.id, orderId));
+
+        // Increment driver completed trips
+        await tx.execute(
+          sql`UPDATE app.driver_profiles SET completed_count = completed_count + 1 WHERE id = ${driverId}::uuid`,
+        );
+
+        // Read breakdown components from latest fare_calculations row
+        const calcRes = await tx.execute<any>(
+          sql`SELECT * FROM app.fare_calculations WHERE order_id = ${orderId}::uuid ORDER BY created_at DESC LIMIT 1`,
+        );
+
+        const calcRow = (calcRes as any)?.rows?.[0] || (calcRes as any)?.[0] || {};
+
+        const breakdown = {
+          agreementId,
+          orderId,
+          visits: Number(calcRow.billable_visits_count || 1),
+          stopFeeUnitMinor: 1000,
+          stopFeesTotalMinor: Number(calcRow.stop_fees_total_minor || 1000),
+          waitHours: Number(calcRow.wait_hours || 0),
+          waitFeeUnitMinor: 3500,
+          waitFeesTotalMinor: Number(calcRow.wait_fees_total_minor || 0),
+          totalInvoicesMinor: Number(calcRow.total_invoices_minor || 0),
+          goodsPercentRate: 0.1,
+          goodsFeesTotalMinor: Number(calcRow.goods_fees_total_minor || 0),
+          calculatedFareMinor: finalFareMinor,
+          formattedFareEgp: `${(finalFareMinor / 100).toFixed(0)} ج.م`,
+          currency: 'EGP',
+        };
+
+        await this.eventBus.publish(tx, 'order.completed', orderId, {
+          orderId,
+          agreementId,
+          driverId,
+          finalFareMinor,
+        });
+
+        return breakdown;
+      },
+      { actor: 'driver' },
     );
-
-    const row = fareRes[0] || (fareRes as any).rows?.[0] || {};
-    const finalFareMinor = Number(row.final_fare || agreement.agreedFareMinor);
-
-    // Update agreement status to fulfilled
-    await this.dbService.db
-      .update(agreements)
-      .set({ status: 'fulfilled', updatedAt: new Date() })
-      .where(eq(agreements.id, agreementId));
-
-    // Update order status to completed
-    await this.dbService.db
-      .update(orders)
-      .set({ status: 'completed', completedAt: new Date(), updatedAt: new Date() })
-      .where(eq(orders.id, orderId));
-
-    // Increment driver completed trips
-    await this.dbService.db.execute(
-      sql`UPDATE app.driver_profiles SET completed_count = completed_count + 1 WHERE id = ${driverId}::uuid`,
-    );
-
-    // Read breakdown components from latest fare_calculations row
-    const calcRes = await this.dbService.db.execute<any>(
-      sql`SELECT * FROM app.fare_calculations WHERE order_id = ${orderId}::uuid ORDER BY created_at DESC LIMIT 1`,
-    );
-
-    const calcRow = (calcRes as any)?.rows?.[0] || (calcRes as any)?.[0] || {};
-
-    const breakdown = {
-      agreementId,
-      orderId,
-      visits: Number(calcRow.billable_visits_count || 1),
-      stopFeeUnitMinor: 1000,
-      stopFeesTotalMinor: Number(calcRow.stop_fees_total_minor || 1000),
-      waitHours: Number(calcRow.wait_hours || 0),
-      waitFeeUnitMinor: 3500,
-      waitFeesTotalMinor: Number(calcRow.wait_fees_total_minor || 0),
-      totalInvoicesMinor: Number(calcRow.total_invoices_minor || 0),
-      goodsPercentRate: 0.1,
-      goodsFeesTotalMinor: Number(calcRow.goods_fees_total_minor || 0),
-      calculatedFareMinor: finalFareMinor,
-      formattedFareEgp: `${(finalFareMinor / 100).toFixed(0)} ج.م`,
-      currency: 'EGP',
-    };
-
-    await this.eventBus.publish('order.completed', orderId, {
-      orderId,
-      agreementId,
-      driverId,
-      finalFareMinor,
-    });
-
-    return breakdown;
   }
 
   async driverUpdateLocation(driverId: string, dto: DriverLocationBatchDto) {

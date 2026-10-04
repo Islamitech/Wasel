@@ -97,6 +97,24 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
     this.fallbackMemory.set(key, { value, expiresAt });
   }
 
+  async setNx(key: string, value: string, ttlSeconds: number): Promise<boolean> {
+    if (this.isConnected && this.client) {
+      try {
+        const res = await this.client.set(key, value, 'EX', ttlSeconds, 'NX');
+        return res === 'OK';
+      } catch {
+        // Fallback to memory
+      }
+    }
+
+    const existing = await this.get(key);
+    if (existing !== null) {
+      return false;
+    }
+    await this.set(key, value, ttlSeconds);
+    return true;
+  }
+
   async del(key: string): Promise<void> {
     if (this.isConnected && this.client) {
       try {

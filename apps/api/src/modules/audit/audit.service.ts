@@ -1,5 +1,5 @@
 import { Injectable, Logger, Inject } from '@nestjs/common';
-import { DatabaseService } from '../../database/database.service.js';
+import { DatabaseService, type DatabaseTransaction } from '../../database/database.service.js';
 import { auditLogs } from '../../database/schema/index.js';
 
 export interface RecordAuditOptions {
@@ -19,9 +19,10 @@ export class AuditService {
 
   constructor(@Inject(DatabaseService) private readonly dbService: DatabaseService) {}
 
-  async log(options: RecordAuditOptions): Promise<void> {
+  async log(options: RecordAuditOptions, tx?: DatabaseTransaction): Promise<void> {
     try {
-      await this.dbService.db.insert(auditLogs).values({
+      const dbClient = tx || this.dbService.db;
+      await dbClient.insert(auditLogs).values({
         userId: options.userId,
         action: options.action,
         entityType: options.entityType,
@@ -32,8 +33,9 @@ export class AuditService {
         userAgent: options.userAgent,
       });
       this.logger.log(`Audit recorded: [${options.action}] ${options.entityType}:${options.entityId || '*'}`);
-    } catch (err: any) {
-      this.logger.error(`Failed to record audit log: ${err.message}`);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      this.logger.error(`Failed to record audit log: ${msg}`);
     }
   }
 }

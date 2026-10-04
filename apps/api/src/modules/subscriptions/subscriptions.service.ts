@@ -1,5 +1,5 @@
 import { Injectable, Inject, NotFoundException } from '@nestjs/common';
-import { DatabaseService } from '../../database/database.service.js';
+import { DatabaseService, type DatabaseTransaction } from '../../database/database.service.js';
 import {
   subscriptions,
   subscriptionPlans,
@@ -95,27 +95,32 @@ export class SubscriptionsService {
     const startsAt = new Date();
     const endsAt = new Date(startsAt.getTime() + duration * 24 * 60 * 60 * 1000);
 
-    const [created] = await this.dbService.db
-      .insert(subscriptions)
-      .values({
-        driverId: dto.driverId,
-        planId: dto.planId,
-        startsAt,
-        endsAt,
-        status: 'active',
-        isTrial: dto.isTrial || false,
-      })
-      .returning();
+    return await this.dbService.transaction(
+      async (tx) => {
+        const [created] = await tx
+          .insert(subscriptions)
+          .values({
+            driverId: dto.driverId,
+            planId: dto.planId,
+            startsAt,
+            endsAt,
+            status: 'active',
+            isTrial: dto.isTrial || false,
+          })
+          .returning();
 
-    await this.auditService.log({
-      userId: adminUserId,
-      action: 'admin_subscription_granted',
-      entityType: 'subscriptions',
-      entityId: created!.id,
-      afterState: { driverId: dto.driverId, planCode: plan.code, endsAt, isTrial: dto.isTrial },
-    });
+        await this.auditService.log({
+          userId: adminUserId,
+          action: 'admin_subscription_granted',
+          entityType: 'subscriptions',
+          entityId: created!.id,
+          afterState: { driverId: dto.driverId, planCode: plan.code, endsAt, isTrial: dto.isTrial },
+        });
 
-    return created;
+        return created;
+      },
+      { actor: 'admin' },
+    );
   }
 
   async adminRecordPayment(subscriptionId: string, adminUserId: string, dto: AdminRecordSubPaymentDto) {
@@ -129,31 +134,37 @@ export class SubscriptionsService {
       throw new NotFoundException('الاشتراك غير موجود');
     }
 
-    const [payment] = await this.dbService.db
-      .insert(subscriptionPayments)
-      .values({
-        subscriptionId,
-        amountMinor: dto.amountMinor,
-        paymentMethod: dto.paymentMethod || 'manual_admin',
-        paymentRef: dto.paymentRef,
-        status: 'completed',
-      })
-      .returning();
+    return await this.dbService.transaction(
+      async (tx) => {
+        const [payment] = await tx
+          .insert(subscriptionPayments)
+          .values({
+            subscriptionId,
+            amountMinor: dto.amountMinor,
+            paymentMethod: dto.paymentMethod || 'manual_admin',
+            paymentRef: dto.paymentRef,
+            status: 'completed',
+          })
+          .returning();
 
-    await this.auditService.log({
-      userId: adminUserId,
-      action: 'subscription_payment_recorded',
-      entityType: 'subscription_payments',
-      entityId: payment!.id,
-      afterState: { subscriptionId, amountMinor: dto.amountMinor, paymentMethod: dto.paymentMethod },
-    });
+        await this.auditService.log({
+          userId: adminUserId,
+          action: 'subscription_payment_recorded',
+          entityType: 'subscription_payments',
+          entityId: payment!.id,
+          afterState: { subscriptionId, amountMinor: dto.amountMinor, paymentMethod: dto.paymentMethod },
+        });
 
-    return payment;
+        return payment;
+      },
+      { actor: 'admin' },
+    );
   }
 
-  async isDriverSubscribed(driverId: string): Promise<boolean> {
+  async isDriverSubscribed(driverId: string, tx?: DatabaseTransaction): Promise<boolean> {
     const now = new Date();
-    const [activeSub] = await this.dbService.db
+    const dbClient = tx || this.dbService.db;
+    const [activeSub] = await dbClient
       .select({ id: subscriptions.id })
       .from(subscriptions)
       .where(

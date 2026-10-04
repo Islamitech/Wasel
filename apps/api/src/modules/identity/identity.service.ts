@@ -8,7 +8,7 @@ import {
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcryptjs';
 import * as crypto from 'crypto';
-import { DatabaseService } from '../../database/database.service.js';
+import { DatabaseService, type DatabaseTransaction } from '../../database/database.service.js';
 import {
   users,
   roles,
@@ -219,154 +219,167 @@ export class IdentityService {
       });
     }
 
-    // 5. Atomic challenge consumption
-    const consumedChallenges = await this.dbService.db
-      .update(otpChallenges)
-      .set({ verifiedAt: now })
-      .where(and(eq(otpChallenges.id, challenge.id), isNull(otpChallenges.verifiedAt)))
-      .returning();
+    // 5-9. Atomically consume challenge, provision/update user & role, establish session, and publish events
+    return await this.dbService.transaction(
+      async (tx) => {
+        // 5. Atomic challenge consumption
+        const consumedChallenges = await tx
+          .update(otpChallenges)
+          .set({ verifiedAt: now })
+          .where(and(eq(otpChallenges.id, challenge.id), isNull(otpChallenges.verifiedAt)))
+          .returning();
 
-    if (consumedChallenges.length === 0) {
-      throw new BadRequestException({
-        errorCode: ErrorCode.OTP_EXPIRED,
-        message: 'تم استهلاك رمز التحقق مسبقاً',
-      });
-    }
-
-    // 6. Find or create user
-    let isNewUser = false;
-    let [user] = await this.dbService.db
-      .select()
-      .from(users)
-      .where(eq(users.phone, phone))
-      .limit(1);
-
-    if (user) {
-      // S-06: Inactive user rejected
-      if (!user.isActive) {
-        throw new UnauthorizedException({
-          errorCode: ErrorCode.UNAUTHORIZED,
-          message: 'حساب المستخدم معطل أو غير نشط',
-        });
-      }
-
-      // S-01: For existing user, only allow adding the other public role (customer <-> driver)
-      const { userRoleNames } = await this.getUserRolesAndPermissions(user.id);
-      if (
-        (requestedRole === 'customer' || requestedRole === 'driver') &&
-        !userRoleNames.includes(requestedRole)
-      ) {
-        const [roleRecord] = await this.dbService.db
-          .select()
-          .from(roles)
-          .where(eq(roles.name, requestedRole))
-          .limit(1);
-
-        if (roleRecord) {
-          await this.dbService.db.insert(userRoles).values({
-            userId: user.id,
-            roleId: roleRecord.id,
-          });
-
-          await this.tokenService.invalidateUserCache(user.id);
-
-          await this.auditService.log({
-            userId: user.id,
-            action: 'identity.role_added',
-            entityType: 'user_roles',
-            beforeState: { existingRoles: userRoleNames },
-            afterState: { addedRole: requestedRole },
-            ipAddress,
-            userAgent,
+        if (consumedChallenges.length === 0) {
+          throw new BadRequestException({
+            errorCode: ErrorCode.OTP_EXPIRED,
+            message: 'تم استهلاك رمز التحقق مسبقاً',
           });
         }
-      }
-    } else {
-      // Find default region
-      const [defaultRegion] = await this.dbService.db
-        .select()
-        .from(regions)
-        .where(eq(regions.code, 'EG-GZ-HDA'))
-        .limit(1);
 
-      const [newUser] = await this.dbService.db
-        .insert(users)
-        .values({
-          phone,
-          regionId: defaultRegion?.id,
-          isActive: true,
-        })
-        .returning();
+        // 6. Find or create user
+        let isNewUser = false;
+        let [user] = await tx
+          .select()
+          .from(users)
+          .where(eq(users.phone, phone))
+          .limit(1);
 
-      user = newUser!;
-      isNewUser = true;
+        if (user) {
+          // S-06: Inactive user rejected
+          if (!user.isActive) {
+            throw new UnauthorizedException({
+              errorCode: ErrorCode.UNAUTHORIZED,
+              message: 'حساب المستخدم معطل أو غير نشط',
+            });
+          }
 
-      // Assign initial public role
-      const [roleRecord] = await this.dbService.db
-        .select()
-        .from(roles)
-        .where(eq(roles.name, requestedRole))
-        .limit(1);
+          // S-01: For existing user, only allow adding the other public role (customer <-> driver)
+          const { userRoleNames } = await this.getUserRolesAndPermissions(user.id, tx);
+          if (
+            (requestedRole === 'customer' || requestedRole === 'driver') &&
+            !userRoleNames.includes(requestedRole)
+          ) {
+            const [roleRecord] = await tx
+              .select()
+              .from(roles)
+              .where(eq(roles.name, requestedRole))
+              .limit(1);
 
-      if (roleRecord) {
-        await this.dbService.db.insert(userRoles).values({
+            if (roleRecord) {
+              await tx.insert(userRoles).values({
+                userId: user.id,
+                roleId: roleRecord.id,
+              });
+
+              await this.tokenService.invalidateUserCache(user.id);
+
+              await this.auditService.log(
+                {
+                  userId: user.id,
+                  action: 'identity.role_added',
+                  entityType: 'user_roles',
+                  beforeState: { existingRoles: userRoleNames },
+                  afterState: { addedRole: requestedRole },
+                  ipAddress,
+                  userAgent,
+                },
+                tx,
+              );
+            }
+          }
+        } else {
+          // Find default region
+          const [defaultRegion] = await tx
+            .select()
+            .from(regions)
+            .where(eq(regions.code, 'EG-GZ-HDA'))
+            .limit(1);
+
+          const [newUser] = await tx
+            .insert(users)
+            .values({
+              phone,
+              regionId: defaultRegion?.id,
+              isActive: true,
+            })
+            .returning();
+
+          user = newUser!;
+          isNewUser = true;
+
+          // Assign initial public role
+          const [roleRecord] = await tx
+            .select()
+            .from(roles)
+            .where(eq(roles.name, requestedRole))
+            .limit(1);
+
+          if (roleRecord) {
+            await tx.insert(userRoles).values({
+              userId: user.id,
+              roleId: roleRecord.id,
+            });
+          }
+
+          await this.auditService.log(
+            {
+              userId: user.id,
+              action: 'identity.user_registered',
+              entityType: 'users',
+              entityId: user.id,
+              afterState: { phone: user.phone, role: requestedRole },
+              ipAddress,
+              userAgent,
+            },
+            tx,
+          );
+        }
+
+        // 7. Load roles & permissions
+        const { userRoleNames, userPermissionNames } = await this.getUserRolesAndPermissions(user.id, tx);
+
+        // 8. Generate session with cryptographic family_id using tx
+        const tokens = await this.generateSession(
+          user.id,
+          undefined,
+          deviceInfo,
+          ipAddress,
+          userAgent,
+          tx,
+        );
+
+        // 9. Publish event via transactional outbox inside tx
+        if (isNewUser) {
+          await this.eventBus.publish(tx, 'user.registered', user.id, {
+            userId: user.id,
+            phone: user.phone!,
+            role: requestedRole,
+            regionId: user.regionId!,
+          });
+        }
+
+        await this.eventBus.publish(tx, 'user.authenticated', user.id, {
           userId: user.id,
-          roleId: roleRecord.id,
+          sessionId: tokens.sessionId,
+          role: userRoleNames[0] || requestedRole,
+          ipAddress,
         });
-      }
 
-      await this.auditService.log({
-        userId: user.id,
-        action: 'identity.user_registered',
-        entityType: 'users',
-        entityId: user.id,
-        afterState: { phone: user.phone, role: requestedRole },
-        ipAddress,
-        userAgent,
-      });
-    }
-
-    // 7. Load roles & permissions
-    const { userRoleNames, userPermissionNames } = await this.getUserRolesAndPermissions(user.id);
-
-    // 8. Generate session with cryptographic family_id
-    const tokens = await this.generateSession(
-      user.id,
-      undefined,
-      deviceInfo,
-      ipAddress,
-      userAgent,
-    );
-
-    // 9. Publish event
-    if (isNewUser) {
-      await this.eventBus.publish('user.registered', user.id, {
-        userId: user.id,
-        phone: user.phone!,
-        role: requestedRole,
-        regionId: user.regionId!,
-      });
-    }
-
-    await this.eventBus.publish('user.authenticated', user.id, {
-      userId: user.id,
-      sessionId: tokens.sessionId,
-      role: userRoleNames[0] || requestedRole,
-      ipAddress,
-    });
-
-    return {
-      accessToken: tokens.accessToken,
-      refreshToken: tokens.refreshToken,
-      user: {
-        id: user.id,
-        phone: user.phone,
-        fullName: user.fullName,
-        regionId: user.regionId,
-        roles: userRoleNames,
-        permissions: userPermissionNames,
+        return {
+          accessToken: tokens.accessToken,
+          refreshToken: tokens.refreshToken,
+          user: {
+            id: user.id,
+            phone: user.phone,
+            fullName: user.fullName,
+            regionId: user.regionId,
+            roles: userRoleNames,
+            permissions: userPermissionNames,
+          },
+        };
       },
-    };
+      { actor: 'system' },
+    );
   }
 
   /**
@@ -702,6 +715,7 @@ export class IdentityService {
     deviceInfo = 'Web Browser',
     ipAddress?: string,
     userAgent?: string,
+    tx?: DatabaseTransaction,
   ) {
     const sessionId = crypto.randomUUID();
     const currentFamilyId = familyId || crypto.randomUUID();
@@ -747,7 +761,8 @@ export class IdentityService {
     const refreshTokenHash = crypto.createHash('sha256').update(refreshToken).digest('hex');
     const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // 30 days
 
-    await this.dbService.db.insert(sessions).values({
+    const dbClient = tx || this.dbService.db;
+    await dbClient.insert(sessions).values({
       id: sessionId,
       userId,
       familyId: currentFamilyId,
@@ -768,8 +783,9 @@ export class IdentityService {
   /**
    * Helper: retrieve roles and permissions for a user
    */
-  private async getUserRolesAndPermissions(userId: string) {
-    const userRoleRecords = await this.dbService.db
+  private async getUserRolesAndPermissions(userId: string, tx?: DatabaseTransaction) {
+    const dbClient = tx || this.dbService.db;
+    const userRoleRecords: Array<{ roleId: string; roleName: string }> = await dbClient
       .select({
         roleId: roles.id,
         roleName: roles.name,
@@ -783,7 +799,7 @@ export class IdentityService {
 
     let userPermissionNames: string[] = [];
     if (roleIds.length > 0) {
-      const permissionRecords = await this.dbService.db
+      const permissionRecords: Array<{ permissionName: string }> = await dbClient
         .select({
           permissionName: permissions.name,
         })

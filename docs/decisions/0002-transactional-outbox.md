@@ -15,3 +15,5 @@ Implement the **Transactional Outbox Pattern**:
 ## Consequences
 - **Positive**: Guaranteed at-least-once delivery; zero loss of domain events even during broker or worker outages; completely decouples HTTP request-response latency from background side-effects.
 - **Negative**: Consumers must be idempotent since at-least-once delivery can occasionally produce duplicate deliveries under network partition recoveries.
+
+*Note: Background worker dispatch scheduling, repeatable BullMQ jobs, and exponential backoff retry policies are specified in [ADR 0005](0005-active-bullmq-scheduler-and-db-outbox.md).*

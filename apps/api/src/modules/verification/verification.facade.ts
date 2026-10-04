@@ -1,5 +1,5 @@
 import { Injectable, Inject } from '@nestjs/common';
-import { DatabaseService } from '../../database/database.service.js';
+import { DatabaseService, type DatabaseTransaction } from '../../database/database.service.js';
 import { driverProfiles, verificationLevels } from '../../database/schema/index.js';
 import { eq } from 'drizzle-orm';
 
@@ -7,8 +7,9 @@ import { eq } from 'drizzle-orm';
 export class VerificationFacade {
   constructor(@Inject(DatabaseService) private readonly dbService: DatabaseService) {}
 
-  async getDriverVerificationStatus(driverId: string) {
-    const [profile] = await this.dbService.db
+  async getDriverVerificationStatus(driverId: string, tx?: DatabaseTransaction) {
+    const dbClient = tx || this.dbService.db;
+    const [profile] = await dbClient
       .select()
       .from(driverProfiles)
       .where(eq(driverProfiles.id, driverId))
@@ -20,7 +21,7 @@ export class VerificationFacade {
       return { verified: false, status: profile.status, rank: 0, allowedValueTierIds: [] };
     }
 
-    const [level] = await this.dbService.db
+    const [level] = await dbClient
       .select()
       .from(verificationLevels)
       .where(eq(verificationLevels.id, profile.verificationLevelId))
@@ -34,10 +35,10 @@ export class VerificationFacade {
     };
   }
 
-  async isDriverEligibleForValueTier(driverId: string, valueTierId?: string | null): Promise<boolean> {
+  async isDriverEligibleForValueTier(driverId: string, valueTierId?: string | null, tx?: DatabaseTransaction): Promise<boolean> {
     if (!valueTierId) return true;
 
-    const status = await this.getDriverVerificationStatus(driverId);
+    const status = await this.getDriverVerificationStatus(driverId, tx);
     if (!status.verified) return false;
 
     // Check if valueTierId is in driver's allowed value tier list
