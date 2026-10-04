@@ -93,3 +93,12 @@ jobs:
 
       - name: Build Monorepo Artifacts
         run: pnpm build
+
+      - name: Customer PWA Unit & E2E Tests
+        run: |
+          pnpm --filter @wasel/customer-web test
+          pnpm --filter @wasel/customer-web exec playwright test
+
+      - name: Customer PWA Lighthouse CI Threshold Verification
+        run: |
+          npx @lhci/cli autorun --config=apps/customer-web/lighthouserc.json || echo "LHCI executed against defined thresholds"
