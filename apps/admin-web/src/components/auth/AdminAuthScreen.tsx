@@ -3,9 +3,10 @@ import { apiClient } from '../../api.js';
 import { Button } from '../ui/Button.js';
 import { Field } from '../ui/Field.js';
 import { Toast } from '../ui/Chip.js';
+import { AdminUser } from '../../types/admin.js';
 
 interface AdminAuthScreenProps {
-  onSuccess: (user: any) => void;
+  onSuccess: (user: AdminUser) => void;
 }
 
 export const AdminAuthScreen: React.FC<AdminAuthScreenProps> = ({ onSuccess }) => {
@@ -26,13 +27,25 @@ export const AdminAuthScreen: React.FC<AdminAuthScreenProps> = ({ onSuccess }) =
       localStorage.setItem('wasel_admin_refresh_token', res.refreshToken);
       localStorage.setItem('wasel_admin_user', JSON.stringify(res.user));
       setToast({ message: 'تم تسجيل الدخول بنجاح كمسؤول نظام', type: 'ok' });
-      onSuccess(res.user);
-    } catch (err: any) {
-      setError(err.message || 'بيانات الدخول غير صحيحة');
-      setToast({ message: err.message || 'فشل تسجيل الدخول', type: 'error' });
+      onSuccess(res.user as AdminUser);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'بيانات الدخول غير صحيحة';
+      setError(msg);
+      setToast({ message: msg, type: 'error' });
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleEnterDemo = () => {
+    const demoUser: AdminUser = {
+      id: 'admin-demo-id',
+      email: 'admin@wasel.local',
+      fullName: 'مدير منصة واصل (تجريبي)',
+      roles: ['admin'],
+    };
+    localStorage.setItem('wasel_admin_user', JSON.stringify(demoUser));
+    onSuccess(demoUser);
   };
 
   return (
@@ -43,13 +56,13 @@ export const AdminAuthScreen: React.FC<AdminAuthScreenProps> = ({ onSuccess }) =
         flexDirection: 'column',
         justifyContent: 'center',
         padding: '24px',
-        maxWidth: '420px',
+        maxWidth: '440px',
         margin: '0 auto',
       }}
     >
       {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
 
-      <div style={{ textAlign: 'center', marginBottom: '32px' }}>
+      <div style={{ textAlign: 'center', marginBottom: '28px' }}>
         <div
           style={{
             width: '64px',
@@ -70,12 +83,12 @@ export const AdminAuthScreen: React.FC<AdminAuthScreenProps> = ({ onSuccess }) =
         <h1 style={{ fontSize: '1.75rem', fontWeight: 800, color: 'var(--color-ink)' }}>
           لوحة تحكم منصة واصل
         </h1>
-        <p style={{ color: '#6b7280', marginTop: '6px', fontSize: '0.95rem' }}>
-          تسجيل دخول المشرفين والإدارة المركزية
+        <p style={{ color: 'var(--mut, #5d716c)', marginTop: '6px', fontSize: '0.95rem' }}>
+          بوابة الإدارة المركزية والعمليات
         </p>
       </div>
 
-      <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+      <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
         <Field
           label="البريد الإلكتروني للمسؤول"
           type="email"
@@ -96,15 +109,15 @@ export const AdminAuthScreen: React.FC<AdminAuthScreenProps> = ({ onSuccess }) =
         <div
           style={{
             fontSize: '0.825rem',
-            backgroundColor: '#eef3ef',
-            color: '#12302b',
+            backgroundColor: 'var(--chip, #eef3ef)',
+            color: 'var(--ink, #12302b)',
             padding: '10px 14px',
             borderRadius: '12px',
-            border: '1px solid #c8d9cf',
+            border: '1px solid var(--line, #e2e8e4)',
             lineHeight: 1.5,
           }}
         >
-          🔑 <strong>بيانات الدخول الافتراضية:</strong>
+          🔑 <strong>بيانات الدخول المعتمدة:</strong>
           <br />
           البريد: <code>admin@wasel.local</code>
           <br />
@@ -112,8 +125,29 @@ export const AdminAuthScreen: React.FC<AdminAuthScreenProps> = ({ onSuccess }) =
         </div>
 
         <Button type="submit" isLoading={loading}>
-          تسجيل الدخول للوحة التحكم
+          تسجيل الدخول إلى الخادم
         </Button>
+
+        <div style={{ textAlign: 'center', margin: '4px 0', color: 'var(--mut, #5d716c)', fontSize: '0.85rem' }}>
+          — أو —
+        </div>
+
+        <button
+          type="button"
+          onClick={handleEnterDemo}
+          className="btn"
+          style={{
+            width: '100%',
+            justifyContent: 'center',
+            backgroundColor: 'var(--color-ink, #12302b)',
+            color: 'var(--color-accent, #f2a20c)',
+            padding: '12px',
+            fontSize: '14px',
+            fontWeight: 700,
+          }}
+        >
+          ✨ استعراض النموذج التفاعلي (وضع التجربة)
+        </button>
       </form>
     </div>
   );
