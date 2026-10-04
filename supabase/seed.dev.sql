@@ -9,6 +9,7 @@
 DO $$
 DECLARE
   v_region_id UUID;
+  v_customer_role_id UUID;
   v_driver_role_id UUID;
   v_plan_trial UUID;
   v_plan_monthly UUID;
@@ -52,6 +53,7 @@ DECLARE
 BEGIN
   -- 1. Look up prerequisite reference IDs
   SELECT id INTO v_region_id FROM app.regions WHERE code = 'hadayek_ahram';
+  SELECT id INTO v_customer_role_id FROM app.roles WHERE name = 'customer';
   SELECT id INTO v_driver_role_id FROM app.roles WHERE name = 'driver';
   SELECT id INTO v_plan_trial FROM app.subscription_plans WHERE code = 'trial_30d';
   SELECT id INTO v_plan_monthly FROM app.subscription_plans WHERE code = 'monthly_standard';
@@ -71,7 +73,27 @@ BEGIN
     RAISE EXCEPTION 'Prerequisite seed data missing. Run seed.sql before running seed.dev.sql';
   END IF;
 
-  -- 2. Generate 50 Captains with RESERVED FAKE test numbers and identifiers
+  -- 2. Seed a valid test customer profile used by the real PostGIS verification script.
+  INSERT INTO app.users (phone, email, full_name, region_id, is_active)
+  VALUES ('+200000009990', 'customer.test@wasel.invalid', 'عميل تجريبي', v_region_id, true)
+  ON CONFLICT (phone) DO UPDATE
+  SET full_name = EXCLUDED.full_name,
+      email = EXCLUDED.email
+  RETURNING id INTO v_user_id;
+
+  INSERT INTO app.user_roles (user_id, role_id)
+  VALUES (v_user_id, v_customer_role_id)
+  ON CONFLICT DO NOTHING;
+
+  INSERT INTO app.customer_profiles (id, region_id, rating_avg, rating_count, completed_count)
+  VALUES (v_user_id, v_region_id, 5.00, 0, 0)
+  ON CONFLICT (id) DO UPDATE
+  SET region_id = EXCLUDED.region_id,
+      rating_avg = EXCLUDED.rating_avg,
+      rating_count = EXCLUDED.rating_count,
+      completed_count = EXCLUDED.completed_count;
+
+  -- 3. Generate 50 Captains with RESERVED FAKE test numbers and identifiers
   FOR i IN 1..50 LOOP
     v_full_name := 'كابتن تجريبي ' || v_first_names[1 + ((i * 3 + 1) % array_length(v_first_names, 1))] || ' ' ||
                                v_last_names[1 + ((i * 7 + 3) % array_length(v_last_names, 1))];
@@ -196,5 +218,5 @@ BEGIN
 
   END LOOP;
 
-  RAISE NOTICE 'Successfully seeded 50 synthetic Captains with vehicles and active subscriptions in Hadayek al-Ahram.';
+  RAISE NOTICE 'Successfully seeded 1 synthetic customer and 50 synthetic Captains with vehicles and active subscriptions in Hadayek al-Ahram.';
 END $$;
