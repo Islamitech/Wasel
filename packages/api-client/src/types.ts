@@ -1,3 +1,5 @@
+export * from '@wasel/shared';
+
 import { ErrorCode } from '@wasel/shared';
 
 export interface UserDto {
@@ -39,42 +41,56 @@ export interface RegionDto {
 
 export interface VehicleTypeDto {
   id: string;
-  regionId: string;
+  regionId?: string;
   code: string;
   nameAr: string;
-  nameEn: string;
-  maxWeightKg: number;
-  maxVolumeCbm: number;
-  isActive: boolean;
-  displayOrder: number;
+  nameEn?: string;
+  maxWeightKg?: number;
+  maxVolumeCbm?: number;
+  active?: boolean;
+  escalationRank?: number;
 }
 
 export interface ServiceActionDto {
   id: string;
-  regionId: string;
+  regionId?: string;
   code: string;
   nameAr: string;
-  nameEn: string;
-  baseFeeCents: number;
-  isActive: boolean;
+  nameEn?: string;
+  baseFeeMinor?: number;
+  sortOrder?: number;
+  requiresInvoice?: boolean;
 }
 
 export interface ValueTierDto {
   id: string;
-  regionId: string;
+  regionId?: string;
   code: string;
   nameAr: string;
-  minValueCents: number;
-  maxValueCents: number;
-  requiredVehicleClasses: string[];
-  isActive: boolean;
+  minAmountMinor: number;
+  maxAmountMinor: number | null;
+  rank: number;
 }
 
 export interface ApiClientError {
   statusCode: number;
-  errorCode: ErrorCode;
+  errorCode: ErrorCode | string;
   message: string;
+  i18nKey?: string;
   details?: any;
   timestamp?: string;
   path?: string;
+}
+
+export interface SseOptions {
+  token?: string;
+  lastEventId?: string;
+  onEvent: (event: string, data: any, id?: string) => void;
+  onError?: (error: any) => void;
+  onOpen?: () => void;
+  autoReconnect?: boolean;
+}
+
+export interface SseSubscription {
+  close: () => void;
 }
