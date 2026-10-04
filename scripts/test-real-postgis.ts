@@ -166,13 +166,33 @@ async function runRealPostgisTest(): Promise<void> {
       throw new Error(`Fare Case 2 mismatch: expected 10000 minor, got ${fare2.fare_minor}`);
     }
 
-    // Fare Case 3: Same store twice = 1 visit
-    const [custUser] = await sql`
-      SELECT id FROM app.users WHERE phone LIKE '+20%' LIMIT 1;
-    `;
     const [region] = await sql`
       SELECT id FROM app.regions WHERE code = 'hadayek_ahram';
     `;
+
+    // Ensure valid customer profile exists to satisfy orders.customer_id FK constraint
+    let [custUser] = await sql`
+      SELECT cp.id
+      FROM app.customer_profiles cp
+      JOIN app.users u ON u.id = cp.id
+      WHERE u.phone LIKE '+20%'
+      LIMIT 1;
+    `;
+    if (!custUser) {
+      const [newCustUser] = await sql`
+        INSERT INTO app.users (phone, full_name, region_id, is_active)
+        VALUES ('+201000000001', 'عميل فحص الـ PostGIS', ${region.id}, true)
+        ON CONFLICT (phone) DO UPDATE SET is_active = true
+        RETURNING id;
+      `;
+      const [newProfile] = await sql`
+        INSERT INTO app.customer_profiles (id, region_id, rating_avg, rating_count, completed_count)
+        VALUES (${newCustUser.id}, ${region.id}, 5.00, 0, 0)
+        ON CONFLICT (id) DO UPDATE SET region_id = EXCLUDED.region_id
+        RETURNING id;
+      `;
+      custUser = newProfile;
+    }
     const [loadSmall] = await sql`
       SELECT id FROM app.load_sizes WHERE code = 'small';
     `;
