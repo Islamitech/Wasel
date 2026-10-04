@@ -277,7 +277,8 @@ export const DriverHomeShell: React.FC<DriverHomeShellProps> = ({
 
       apiClient.driver
         .getNearbyOrders()
-        .then((orders: any[]) => {
+        .then((res: any) => {
+          const orders = Array.isArray(res) ? res : res?.data || [];
           if (Array.isArray(orders) && orders.length > 0 && stateRef.current.sheetState === 'waiting') {
             const first = orders[0];
             playOrderAlertSound();

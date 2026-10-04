@@ -56,7 +56,7 @@ export class IdentityService {
   /**
    * Request OTP code for a phone number
    */
-  async requestOtp(rawPhone: string, requestedRole: string = UserRole.CUSTOMER) {
+  async requestOtp(rawPhone: string, requestedRole: string = UserRole.CUSTOMER, ip?: string) {
     const phone = normalizeEgyptianPhone(rawPhone);
 
     // 1. Check existing active challenge for cooldown
@@ -122,6 +122,7 @@ export class IdentityService {
       phone,
       code,
       expiresInMinutes: expiryMinutes,
+      ip,
     });
 
     // 6. Record domain event

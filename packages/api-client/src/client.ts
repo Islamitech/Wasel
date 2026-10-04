@@ -258,7 +258,16 @@ export class WaselApiClient {
 
     getSubscription: () => this.request<any>('/driver/subscription'),
 
-    getNearbyOrders: () => this.request<any[]>('/driver/orders/nearby'),
+    getNearbyOrders: (params?: { lat?: number; lng?: number; radius?: number; cursor?: string; limit?: number }) => {
+      const searchParams = new URLSearchParams();
+      if (params?.lat !== undefined) searchParams.set('lat', String(params.lat));
+      if (params?.lng !== undefined) searchParams.set('lng', String(params.lng));
+      if (params?.radius !== undefined) searchParams.set('radius', String(params.radius));
+      if (params?.cursor) searchParams.set('cursor', params.cursor);
+      if (params?.limit !== undefined) searchParams.set('limit', String(params.limit));
+      const qs = searchParams.toString();
+      return this.request<any>(`/driver/orders/nearby${qs ? `?${qs}` : ''}`);
+    },
 
     getOrderCard: (orderId: string) => this.request<any>(`/driver/orders/${orderId}`),
 
@@ -626,20 +635,48 @@ export class WaselApiClient {
       }),
   };
 
+  /**
+   * Generates a short-lived (30s) single-use stream ticket for SSE connection
+   */
+  async getStreamTicket(): Promise<{ ticket: string; expiresIn: number }> {
+    return this.request<{ ticket: string; expiresIn: number }>('/stream/ticket', {
+      method: 'POST',
+    });
+  }
+
   // 12. Realtime SSE Stream with auto-reconnect and Last-Event-ID resume
   subscribeRealtime(options: SseOptions): SseSubscription {
     let isClosed = false;
     let reconnectTimeout: any;
     let currentLastEventId = options.lastEventId;
+    let abortController: AbortController | null = null;
 
-    const connect = () => {
+    const connect = async () => {
       if (isClosed) return;
 
       const token = options.token || this.getAccessToken?.();
-      const url = new URL(`${this.baseUrl}/v1/stream`);
-      if (token) url.searchParams.set('token', token);
+      let ticket: string | undefined;
 
-      let abortController = new AbortController();
+      if (token) {
+        try {
+          const res = await this.request<{ ticket: string; expiresIn: number }>('/stream/ticket', {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          if (res?.ticket) {
+            ticket = res.ticket;
+          }
+        } catch {
+          // Fallback to Bearer auth header
+        }
+      }
+
+      const url = new URL(`${this.baseUrl}/v1/stream`);
+      if (ticket) {
+        url.searchParams.set('ticket', ticket);
+      }
+
+      abortController = new AbortController();
 
       const headers: Record<string, string> = {};
       if (token) headers['Authorization'] = `Bearer ${token}`;
@@ -711,18 +748,15 @@ export class WaselApiClient {
           }
         });
 
-      return () => {
-        abortController.abort();
-      };
     };
 
-    let cleanup = connect();
+    connect();
 
     return {
       close: () => {
         isClosed = true;
         if (reconnectTimeout) clearTimeout(reconnectTimeout);
-        if (cleanup) cleanup();
+        if (abortController) abortController.abort();
       },
     };
   }

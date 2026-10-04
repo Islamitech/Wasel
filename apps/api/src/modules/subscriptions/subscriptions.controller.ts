@@ -4,12 +4,15 @@ import {
   Post,
   Body,
   Param,
+  Req,
+  Query,
   UseGuards,
   HttpCode,
   HttpStatus,
   Inject,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
+import { Request } from 'express';
 import { SubscriptionsService } from './subscriptions.service.js';
 import { JwtAuthGuard } from '../identity/index.js';
 import { RolesGuard } from '../../common/guards/roles.guard.js';
@@ -69,4 +72,28 @@ export class SubscriptionsController {
   ) {
     return this.subsService.adminRecordPayment(subscriptionId, adminId, dto);
   }
+
+  @Post('driver/subscription/pay')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.DRIVER, UserRole.ADMIN)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Initiate electronic payment session for driver subscription plan' })
+  async initiatePayment(
+    @CurrentUser('userId') driverId: string,
+    @Body('planId') planId: string,
+  ) {
+    return this.subsService.initiateSubscriptionPayment(driverId, planId);
+  }
+
+  @Post('subscriptions/webhook')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Signed electronic payment gateway webhook callback (Paymob)' })
+  async paymentWebhook(
+    @Req() req: Request,
+    @Body() body: unknown,
+    @Query() query: unknown,
+  ) {
+    return this.subsService.handlePaymentWebhook(req.headers, body, query);
+  }
 }
+

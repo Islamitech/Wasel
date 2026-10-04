@@ -25,6 +25,7 @@ import {
   AdminReviewVerificationDto,
   ErrorCode,
 } from '@wasel/shared';
+import { SubscriptionsFacade } from '../subscriptions/index.js';
 import * as crypto from 'crypto';
 
 @Injectable()
@@ -34,6 +35,7 @@ export class VerificationService {
     @Inject(AuditService) private readonly auditService: AuditService,
     @Inject(S3StorageService) private readonly storageService: S3StorageService,
     @Inject(EncryptionService) private readonly encryptionService: EncryptionService,
+    @Inject(SubscriptionsFacade) private readonly subsFacade: SubscriptionsFacade,
   ) {}
 
   async upsertDriverProfile(userId: string, dto: DriverProfileCreateDto) {
@@ -429,6 +431,9 @@ export class VerificationService {
                   updatedAt: new Date(),
                 })
                 .where(eq(driverProfiles.id, doc.driverId));
+
+              // Automatic 30-day trial grant on driver approval
+              await this.subsFacade.grantTrialSubscriptionIfEligible(doc.driverId, tx);
             }
           }
         }
@@ -471,6 +476,11 @@ export class VerificationService {
           })
           .where(eq(driverProfiles.id, driverId))
           .returning();
+
+        if (approve && profile.status !== 'approved') {
+          // Automatic 30-day trial grant on driver approval
+          await this.subsFacade.grantTrialSubscriptionIfEligible(driverId, tx);
+        }
 
         await this.auditService.log({
           userId: adminUserId,

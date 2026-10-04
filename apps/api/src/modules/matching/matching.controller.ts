@@ -3,6 +3,7 @@ import {
   Get,
   Post,
   Param,
+  Query,
   UseGuards,
   HttpCode,
   HttpStatus,
@@ -26,8 +27,26 @@ export class MatchingController {
   @Get('nearby')
   @Roles(UserRole.DRIVER, UserRole.ADMIN)
   @ApiOperation({ summary: 'Driver radar view: list nearby eligible orders within search radius' })
-  async getNearbyOrders(@CurrentUser('userId') driverId: string) {
-    return this.matchingService.getNearbyOrders(driverId);
+  async getNearbyOrders(
+    @CurrentUser('userId') driverId: string,
+    @Query('lat') lat?: string,
+    @Query('lng') lng?: string,
+    @Query('radius') radius?: string,
+    @Query('cursor') cursor?: string,
+    @Query('limit') limit?: string,
+  ) {
+    const latNum = lat !== undefined && lat !== '' ? parseFloat(lat) : undefined;
+    const lngNum = lng !== undefined && lng !== '' ? parseFloat(lng) : undefined;
+    const radiusNum = radius !== undefined && radius !== '' ? parseInt(radius, 10) : undefined;
+    const limitNum = limit !== undefined && limit !== '' ? parseInt(limit, 10) : 20;
+
+    return this.matchingService.getNearbyOrders(driverId, {
+      lat: latNum,
+      lng: lngNum,
+      radiusMeters: radiusNum,
+      cursor,
+      limit: limitNum,
+    });
   }
 
   @Get(':id')

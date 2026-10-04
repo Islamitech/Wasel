@@ -8,6 +8,7 @@ import { OutboxProcessorService } from './common/events/outbox-processor.service
 import { ExpiryService } from './common/events/expiry.service.js';
 import { EventBusService } from './common/events/event-bus.service.js';
 import { SettingsService } from './common/settings/settings.service.js';
+import { MatchingFacade } from './modules/matching/matching.facade.js';
 
 dotenv.config();
 
@@ -47,6 +48,7 @@ async function startWorker() {
   const eventBus = new EventBusService(dbService);
   const expiryService = new ExpiryService(dbService, eventBus);
   const outboxProcessor = new OutboxProcessorService(dbService, settingsService);
+  const matchingFacade = new MatchingFacade(dbService);
 
   // 2. Register domain event dispatch handlers
   outboxProcessor.registerHandler('order.created', async (event) => {
@@ -54,7 +56,23 @@ async function startWorker() {
   });
 
   outboxProcessor.registerHandler('order.published', async (event) => {
-    logger.debug(`[DISPATCH] order.published -> broadcasting radar dispatch to drivers (orderId: ${event.aggregateId})`);
+    logger.debug(`[DISPATCH] order.published -> calculating eligible drivers (orderId: ${event.aggregateId})`);
+    try {
+      const eligibleDrivers = await matchingFacade.findEligibleDrivers(event.aggregateId);
+      logger.log(`Found ${eligibleDrivers.length} eligible drivers for published order ${event.aggregateId}`);
+      if (eligibleDrivers.length > 0 && redisAvailable) {
+        const driverIds = eligibleDrivers.map((d) => d.driverId);
+        const sseEvent = JSON.stringify({
+          event: 'order.published',
+          payload: { orderId: event.aggregateId, candidatesCount: eligibleDrivers.length },
+          recipients: driverIds,
+          eventId: `evt-outbox-${event.id}`,
+        });
+        await connection.publish('wasel:realtime:events', sseEvent);
+      }
+    } catch (err) {
+      logger.error(`Failed to dispatch order.published outbox event: ${err}`);
+    }
   });
 
   outboxProcessor.registerHandler('order.cancelled', async (event) => {

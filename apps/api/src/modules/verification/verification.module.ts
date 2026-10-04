@@ -3,11 +3,12 @@ import { VerificationService } from './verification.service.js';
 import { VerificationController } from './verification.controller.js';
 import { VerificationFacade } from './verification.facade.js';
 import { AuditModule } from '../audit/index.js';
+import { SubscriptionsModule } from '../subscriptions/index.js';
 import { S3StorageService } from '../../common/storage/s3-storage.service.js';
 import { EncryptionService } from '../../common/crypto/index.js';
 
 @Module({
-  imports: [AuditModule],
+  imports: [AuditModule, SubscriptionsModule],
   controllers: [VerificationController],
   providers: [VerificationService, VerificationFacade, S3StorageService, EncryptionService],
   exports: [VerificationFacade, VerificationService, EncryptionService],

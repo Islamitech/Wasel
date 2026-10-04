@@ -1,4 +1,4 @@
-# ADR 0004: No Platform Direct Money Flow (Zero In-App Wallet)
+# ADR 0004: Cash Settlement Architecture & Subscription Platform Revenue Model
 
 ## Status
 Accepted

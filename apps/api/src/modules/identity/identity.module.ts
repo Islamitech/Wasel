@@ -8,6 +8,9 @@ import { TokenService } from './token.service.js';
 import { JwtAuthGuard } from './guards/jwt-auth.guard.js';
 import { PermissionsGuard } from './guards/permissions.guard.js';
 import { DevOtpProvider } from '../../common/providers/otp/dev-otp.provider.js';
+import { WhatsAppCloudOtpProvider } from '../../common/providers/otp/whatsapp-cloud-otp.provider.js';
+import { SmsOtpProvider } from '../../common/providers/otp/sms-otp.provider.js';
+import { DualFailoverOtpProvider } from '../../common/providers/otp/dual-failover-otp.provider.js';
 import { OTP_PROVIDER_TOKEN } from '../../common/providers/otp/otp.provider.interface.js';
 import { AuditModule } from '../audit/index.js';
 import { AppConfigService } from '../../config/config.service.js';
@@ -37,21 +40,29 @@ import { AppConfigService } from '../../config/config.service.js';
     IdentityFacade,
     JwtAuthGuard,
     PermissionsGuard,
+    WhatsAppCloudOtpProvider,
+    SmsOtpProvider,
+    DualFailoverOtpProvider,
     {
       provide: OTP_PROVIDER_TOKEN,
-      inject: [AppConfigService],
-      useFactory: (configService: AppConfigService) => {
+      inject: [AppConfigService, DualFailoverOtpProvider, WhatsAppCloudOtpProvider, SmsOtpProvider],
+      useFactory: (
+        configService: AppConfigService,
+        dualProvider: DualFailoverOtpProvider,
+        whatsappProvider: WhatsAppCloudOtpProvider,
+        smsProvider: SmsOtpProvider,
+      ) => {
         const provider = configService.get('OTP_PROVIDER');
         if (provider === 'dev') {
           return new DevOtpProvider();
         }
-        if (provider === 'sms') {
-          throw new Error('Fatal: SMS OTP provider requested but no production SMS gateway implementation is configured.');
-        }
         if (provider === 'whatsapp') {
-          throw new Error('Fatal: WhatsApp OTP provider requested but no production WhatsApp gateway implementation is configured.');
+          return whatsappProvider;
         }
-        throw new Error(`Unsupported OTP provider: ${provider}`);
+        if (provider === 'sms') {
+          return smsProvider;
+        }
+        return dualProvider;
       },
     },
   ],

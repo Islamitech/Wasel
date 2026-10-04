@@ -42,6 +42,16 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
       this.isConnected = true;
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
+      const isProduction =
+        this.configService?.get('APP_ENV') === 'production' ||
+        process.env.APP_ENV === 'production' ||
+        process.env.NODE_ENV === 'production';
+
+      if (isProduction) {
+        this.logger.error(`❌ FATAL: Redis connection failed in production: ${msg}`);
+        throw new Error(`[FATAL] Redis connection failed in production: ${msg}`);
+      }
+
       this.logger.warn(`Redis not available (${msg}). Using local fast cache fallback.`);
       this.isConnected = false;
     }

@@ -43,8 +43,9 @@ export class IdentityController {
   @UsePipes(new ZodValidationPipe(RequestOtpSchema))
   @ApiOperation({ summary: 'Request OTP challenge for login/registration' })
   @ApiResponse({ status: 200, description: 'OTP challenge initiated' })
-  async requestOtp(@Body() dto: RequestOtpDto) {
-    return this.identityService.requestOtp(dto.phone, dto.role);
+  async requestOtp(@Body() dto: RequestOtpDto, @Req() req: Request) {
+    const ip = req.ip || req.socket.remoteAddress;
+    return this.identityService.requestOtp(dto.phone, dto.role, ip);
   }
 
   @Post('otp/verify')

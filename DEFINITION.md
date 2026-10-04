@@ -26,14 +26,22 @@ An Arabic-first (RTL) local logistics and delivery marketplace connecting reside
 - Driver verification document and vehicle photo upload verification with prefix isolation, HEAD storage checks, versioned server-side metadata encryption, and admin audit logging.
 - In-agreement messaging restricted to active agreement parties with configurable grace periods, length bounds, Redis rate limits, and admin audit trail.
 - Ratings validation restricted to completed agreements with integer bounds (1-5) and 409 Conflict mapping on duplicate ratings.
-- Admin user search with SQL wildcard escaping, minimum query length, cursor pagination, and PII audit tracking.
+- PostGIS spatial matching engine (`MatchingFacade.findEligibleDrivers`) bound to SQL `app.find_eligible_drivers` filtering by distance, active subscription, verification level, and vehicle class capacity.
+- High-efficiency driver radar (`MatchingService.getNearbyOrders`) with single-query batch execution, `ST_DWithin` spatial indexing, true `ST_Distance` calculation, settings-controlled radius, cursor pagination, and self-order exclusion.
+- Real-time Server-Sent Events (SSE) streaming with short-lived (30s) single-use ticket authentication (`POST /v1/stream/ticket`), `Last-Event-ID` missed event playback via Redis/memory ring buffers, and per-user connection concurrency limits.
+- Explicit recipient routing for real-time events eliminating accidental broadcasts, with outbox `order.published` fanout to eligible drivers.
+- Dual-failover OTP provider (`DualFailoverOtpProvider`) with primary WhatsApp Cloud API and automatic SMS fallback, daily phone/IP cost ceilings, and rapid SMS-pumping fraud detection.
+- Driver subscription management prioritizing active subscriptions, extending renewals from current `endsAt`, and granting an automatic 30-day trial upon driver verification without duplicate grants.
+- Electronic payment integration (`PaymobPaymentProvider`) with idempotent HMAC SHA512 signature verification, automatic reconciliation, and cash settlement architecture documentation (ADR-0004).
+- Production web push notifications (`WebPushProvider`) with native fetch and 410/404 expired subscription cleanup, and Google Maps integration (`GoogleMapsProvider`) with reverse geocoding and routing fallbacks.
 
 ## Planned capabilities
 - Multi-stop cart creation directly from interactive neighborhood map pins.
 - Dynamic vehicle dispatch escalation matching cargo dimensions, weight, and monetary value.
-- Real-time order dispatch and driver tracking.
+- Real-time driver live location tracking on customer maps.
 
 ## Updated
+2026-10-04 — Phase 5: Features & Live Integrations (F-01 PostGIS spatial matching & nearby radar, F-02 SSE ticket auth, ring buffer playback & recipient routing, S-17 WhatsApp/SMS dual failover OTP & anti-pumping, F-05 subscriptions, Paymob HMAC webhook & 30d trial grant, Web Push & Google Maps providers, ADR-0004 cash settlement architecture).
 2026-10-04 — Phase 4: Privacy & Fine-Grained Authorization (S-08 private media & presigned URLs, S-09 verification doc encryption & prefix isolation, S-12 OrderRadarView & ~300m grid obfuscation, S-13 in-agreement messaging & rate limits, ratings completion checks, admin PII search sanitization, IDOR elimination).
 2026-10-04 — Phase 3: Transactional Integrity, Outbox, Expirations & Redis Idempotency (D-03 ACID transactions & row locking, D-04 transactional outbox & BullMQ/fallback worker, D-05 business rules & self-assignment guard, D-06 expiry sweeps, S-04 Redis idempotency).
 2026-10-04 — Phase 2: Database & Geo Hardening (D-01, D-02: unified migration/seed runners with checksums, PostGIS geography types and SRID 4326 axis order, polygon boundary containment, zero PGlite in production dist).

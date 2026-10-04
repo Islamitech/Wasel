@@ -2,12 +2,17 @@ export interface SendOtpOptions {
   phone: string;
   code: string;
   expiresInMinutes: number;
+  ip?: string;
+  userId?: string;
 }
 
 export interface SendOtpResult {
   success: boolean;
   messageId?: string;
   provider: string;
+  deliveryStatus?: 'sent' | 'delivered' | 'failed';
+  costMinor?: number;
+  error?: string;
 }
 
 export interface IOtpProvider {

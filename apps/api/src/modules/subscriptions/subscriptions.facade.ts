@@ -9,4 +9,9 @@ export class SubscriptionsFacade {
   async isDriverSubscribed(driverId: string, tx?: DatabaseTransaction): Promise<boolean> {
     return this.subsService.isDriverSubscribed(driverId, tx);
   }
+
+  async grantTrialSubscriptionIfEligible(driverId: string, tx?: DatabaseTransaction): Promise<boolean> {
+    return this.subsService.grantTrialSubscriptionIfEligible(driverId, tx);
+  }
 }
+
