@@ -314,25 +314,35 @@ async function runRealPostgisTest(): Promise<void> {
     const explainResult = await sql.unsafe(explainQuery);
     console.log('RAW EXPLAIN (ANALYZE, BUFFERS) EXECUTION PLAN:');
     console.log('-'.repeat(80));
+    const fullPlanLines: string[] = [];
     let usedGistIndex = false;
+    let gistMatchDetail = '';
+
     for (const row of explainResult) {
-      const planLine = row['QUERY PLAN'] || Object.values(row)[0];
+      const planLine = String(row['QUERY PLAN'] || Object.values(row)[0] || '');
+      fullPlanLines.push(planLine);
       console.log(`  ${planLine}`);
+
+      // Strictly require Index Scan using idx_driver_locations_gis or Bitmap Index Scan on idx_driver_locations_gis
       if (
-        typeof planLine === 'string' &&
-        (planLine.includes('idx_driver_locations_gis') ||
-          planLine.includes('Index Scan') ||
-          planLine.includes('Bitmap Index Scan'))
+        planLine.includes('idx_driver_locations_gis') &&
+        (planLine.includes('Index Scan') || planLine.includes('Bitmap Index Scan'))
       ) {
         usedGistIndex = true;
+        gistMatchDetail = planLine.trim();
       }
     }
     console.log('-'.repeat(80));
 
     if (!usedGistIndex) {
-      throw new Error('PostGIS GiST spatial index was NOT used in the query plan!');
+      console.error('\n[STRICT CHECK FAILED] Query plan did not utilize idx_driver_locations_gis index scan!');
+      console.error('Full Execution Plan captured:\n' + fullPlanLines.join('\n'));
+      throw new Error(
+        'STRICT VERIFICATION FAILED: PostGIS GiST index "idx_driver_locations_gis" was NOT used in Index Scan / Bitmap Index Scan!'
+      );
     }
-    console.log('✅ PROOF VERIFIED: PostGIS GiST index (idx_driver_locations_gis) was utilized in spatial search plan!\n');
+    console.log(`✅ PROOF VERIFIED: PostGIS GiST index verified in execution plan:`);
+    console.log(`   -> "${gistMatchDetail}"\n`);
 
     console.log('='.repeat(80));
     console.log(' REAL POSTGIS DATABASE HARDENING VERIFICATION: ALL GATES PASSED');

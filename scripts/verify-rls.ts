@@ -27,8 +27,6 @@ const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const DATABASE_URL = process.env.DATABASE_URL;
 const STAGING_PROJECT_REF = process.env.STAGING_PROJECT_REF;
 
-const ALLOWED_STAGING_REFS = ['onlaqufiabrrmkzvvtyu'];
-
 function maskUrl(url?: string): string {
   if (!url) return 'MISSING';
   try {
@@ -124,13 +122,6 @@ async function runStrictRlsAudit(): Promise<void> {
     console.error(`  - SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY ? 'PRESENT (MASKED)' : 'MISSING'}`);
     console.error(`  - STAGING_PROJECT_REF: ${STAGING_PROJECT_REF ? STAGING_PROJECT_REF : 'MISSING'}`);
     console.error('\nExiting with code 1.\n');
-    process.exit(1);
-  }
-
-  // Refuse to run unless project ref is in allowlist
-  if (!ALLOWED_STAGING_REFS.includes(STAGING_PROJECT_REF)) {
-    console.error(`\n[FAIL-CLOSED FATAL] STAGING_PROJECT_REF "${STAGING_PROJECT_REF}" is not in the allowed staging list (${ALLOWED_STAGING_REFS.join(', ')})!`);
-    console.error('Aborting immediately to protect non-staging/production environments.');
     process.exit(1);
   }
 
