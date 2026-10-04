@@ -2,7 +2,7 @@ name: Wasel Foundation CI
 
 on:
   push:
-    branches: [main, develop]
+    branches: [main, develop, 'chore/**', 'feat/**']
   pull_request:
     branches: [main, develop]
 
