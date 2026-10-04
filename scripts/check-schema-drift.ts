@@ -102,8 +102,9 @@ export function extractDrizzleTablesAndColumns(): Map<string, Map<string, Column
   // Load compiled schema or ts-source
   const schemaPath = path.resolve(__dirname, '../apps/api/dist/database/schema/index.js');
   if (!fs.existsSync(schemaPath)) {
-    console.log('[check-drift] Pre-compiling @wasel/api schema artifacts...');
+    console.log('[check-drift] Pre-compiling @wasel/shared and @wasel/api schema artifacts...');
     const rootDir = path.resolve(__dirname, '..');
+    execSync('pnpm --filter @wasel/shared build', { cwd: rootDir, stdio: 'inherit' });
     execSync('pnpm --filter @wasel/api build', { cwd: rootDir, stdio: 'inherit' });
   }
 
