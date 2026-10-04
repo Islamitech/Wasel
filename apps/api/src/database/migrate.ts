@@ -58,6 +58,24 @@ export async function runMigrations(options: { status?: boolean; down?: string }
     // 1. Ensure schema and migration tracking table exist
     await sql`CREATE SCHEMA IF NOT EXISTS extensions;`;
     await sql`CREATE SCHEMA IF NOT EXISTS app;`;
+    await sql`GRANT USAGE ON SCHEMA extensions TO public;`;
+    await sql.unsafe(`
+      DO $$
+      BEGIN
+        IF EXISTS (
+          SELECT 1 FROM pg_extension e
+          JOIN pg_namespace n ON e.extnamespace = n.oid
+          WHERE e.extname = 'postgis' AND n.nspname != 'extensions'
+        ) THEN
+          DROP EXTENSION IF EXISTS postgis_topology CASCADE;
+          DROP EXTENSION IF EXISTS postgis_raster CASCADE;
+          DROP EXTENSION IF EXISTS postgis CASCADE;
+        END IF;
+      END $$;
+    `);
+    await sql`CREATE EXTENSION IF NOT EXISTS "postgis" WITH SCHEMA extensions;`;
+    await sql`CREATE EXTENSION IF NOT EXISTS "uuid-ossp" WITH SCHEMA extensions;`;
+    await sql`CREATE EXTENSION IF NOT EXISTS "pgcrypto" WITH SCHEMA extensions;`;
     await sql`
       CREATE TABLE IF NOT EXISTS app.schema_migrations (
         id SERIAL PRIMARY KEY,

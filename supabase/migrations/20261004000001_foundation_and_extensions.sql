@@ -7,12 +7,38 @@
 
 -- 1. Create Extensions Schema and Extensions
 CREATE SCHEMA IF NOT EXISTS extensions;
+GRANT USAGE ON SCHEMA extensions TO public, anon, authenticated;
+
+-- Ensure PostGIS resides in the 'extensions' schema (matching Supabase).
+-- If a pre-configured image (such as postgis/postgis Docker) initialized PostGIS in 'public',
+-- drop it cleanly and recreate within 'extensions'.
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM pg_extension e
+    JOIN pg_namespace n ON e.extnamespace = n.oid
+    WHERE e.extname = 'postgis' AND n.nspname != 'extensions'
+  ) THEN
+    DROP EXTENSION IF EXISTS postgis_topology CASCADE;
+    DROP EXTENSION IF EXISTS postgis_raster CASCADE;
+    DROP EXTENSION IF EXISTS postgis CASCADE;
+  END IF;
+END $$;
 
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp" WITH SCHEMA extensions;
 CREATE EXTENSION IF NOT EXISTS "pgcrypto" WITH SCHEMA extensions;
 CREATE EXTENSION IF NOT EXISTS "postgis" WITH SCHEMA extensions;
 CREATE EXTENSION IF NOT EXISTS "pg_trgm" WITH SCHEMA extensions;
 CREATE EXTENSION IF NOT EXISTS "citext" WITH SCHEMA extensions;
+
+-- Ensure default search_path includes app, extensions, public for current DB and session
+DO $$
+BEGIN
+  EXECUTE 'ALTER DATABASE ' || quote_ident(current_database()) || ' SET search_path TO app, extensions, public';
+EXCEPTION WHEN OTHERS THEN
+  NULL;
+END $$;
+SET search_path TO app, extensions, public;
 
 -- 2. Dedicated Application Schema
 CREATE SCHEMA IF NOT EXISTS app;

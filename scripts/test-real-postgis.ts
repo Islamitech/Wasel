@@ -61,7 +61,28 @@ async function runRealPostgisTest(): Promise<void> {
     const [pgVersion] = await sql`SELECT version()`;
     console.log(`[PASS] PostgreSQL Version: ${pgVersion.version.split('\n')[0]}`);
 
-    const [postgisVersion] = await sql`SELECT postgis_full_version()`.catch(() => [{ postgis_full_version: 'NOT INSTALLED' }]);
+    // Ensure PostGIS is in 'extensions' schema (matching Supabase)
+    await sql.unsafe(`
+      CREATE SCHEMA IF NOT EXISTS extensions;
+      DO $$
+      BEGIN
+        IF EXISTS (
+          SELECT 1 FROM pg_extension e
+          JOIN pg_namespace n ON e.extnamespace = n.oid
+          WHERE e.extname = 'postgis' AND n.nspname != 'extensions'
+        ) THEN
+          DROP EXTENSION IF EXISTS postgis_topology CASCADE;
+          DROP EXTENSION IF EXISTS postgis_raster CASCADE;
+          DROP EXTENSION IF EXISTS postgis CASCADE;
+        END IF;
+      END $$;
+      CREATE EXTENSION IF NOT EXISTS "postgis" WITH SCHEMA extensions;
+      SET search_path TO app, extensions, public;
+    `);
+
+    const [postgisVersion] = await sql`SELECT extensions.postgis_full_version()`.catch(
+      () => sql`SELECT postgis_full_version()`.catch(() => [{ postgis_full_version: 'NOT INSTALLED' }])
+    );
     console.log(`[PASS] PostGIS Info: ${postgisVersion.postgis_full_version.split('\n')[0]}\n`);
 
     if (postgisVersion.postgis_full_version === 'NOT INSTALLED') {
