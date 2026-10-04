@@ -1,0 +1,10 @@
+title = "Gitleaks Configuration for Wasel"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Allow dummy 64-hex dev/test encryption key used in test, ci, and env example"
+regexes = [
+    '''0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef'''
+]
