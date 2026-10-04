@@ -10,6 +10,8 @@
     "typecheck": "turbo run typecheck",
     "test": "turbo run test",
     "test:db": "pnpm --filter @wasel/api test data_model.spec.ts",
+    "test:db:real": "pnpm --filter @wasel/api exec tsx ../../supabase/tests/run-db-tests.ts",
+    "db:check-drift": "pnpm --filter @wasel/api exec tsx ../../scripts/check-schema-drift.ts",
     "verify:rls": "pnpm --filter @wasel/api exec tsx ../../scripts/verify-rls.ts",
     "test:e2e": "turbo run test:e2e",
     "generate:client": "turbo run generate:client",
