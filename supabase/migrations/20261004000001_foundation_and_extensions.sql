@@ -17,6 +17,17 @@ CREATE EXTENSION IF NOT EXISTS "citext" WITH SCHEMA extensions;
 -- 2. Dedicated Application Schema
 CREATE SCHEMA IF NOT EXISTS app;
 
+-- Ensure roles exist for local/Docker/CI vanilla Postgres (pre-existing in Supabase)
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') THEN
+    CREATE ROLE anon NOLOGIN;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated') THEN
+    CREATE ROLE authenticated NOLOGIN;
+  END IF;
+END $$;
+
 -- Explicitly revoke access on schema app from anon and authenticated roles
 REVOKE ALL ON SCHEMA app FROM public, anon, authenticated;
 
@@ -27,7 +38,9 @@ BEGIN
   NEW.updated_at = clock_timestamp();
   RETURN NEW;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SECURITY INVOKER SET search_path = app, extensions, pg_temp;
+
+REVOKE EXECUTE ON FUNCTION app.set_updated_at() FROM public, anon, authenticated;
 
 COMMENT ON FUNCTION app.set_updated_at() IS 'Trigger function automatically updating updated_at column to current timestamp on row update';
 

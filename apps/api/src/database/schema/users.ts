@@ -1,9 +1,10 @@
-import { pgTable, uuid, varchar, boolean, timestamp } from 'drizzle-orm/pg-core';
+import { uuid, varchar, boolean, timestamp } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
+import { appSchema } from './common.js';
 import { regions } from './regions.js';
 
-export const users = pgTable('users', {
-  id: uuid('id').default(sql`gen_random_uuid()`).primaryKey(),
+export const users = appSchema.table('users', {
+  id: uuid('id').default(sql`extensions.gen_random_uuid()`).primaryKey(),
   phone: varchar('phone', { length: 20 }).unique(),
   email: varchar('email', { length: 255 }).unique(),
   passwordHash: varchar('password_hash', { length: 255 }),

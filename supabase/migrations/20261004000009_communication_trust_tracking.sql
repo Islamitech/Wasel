@@ -88,7 +88,9 @@ BEGIN
 
   RETURN NEW;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SECURITY INVOKER SET search_path = app, extensions, pg_temp;
+
+REVOKE EXECUTE ON FUNCTION app.update_profile_rating_aggregates() FROM public, anon, authenticated;
 
 CREATE TRIGGER trg_ratings_update_aggregates
   AFTER INSERT OR UPDATE ON app.ratings

@@ -1,233 +1,129 @@
 import { PGlite } from '@electric-sql/pglite';
 import { drizzle } from 'drizzle-orm/pglite';
+import { eq } from 'drizzle-orm';
 import * as bcrypt from 'bcryptjs';
 import * as path from 'path';
 import * as fs from 'fs';
 import * as schema from './schema/index.js';
 
 export async function initEmbeddedDatabase(dataDir?: string) {
-  const resolvedDir = dataDir || path.resolve(process.cwd(), '.pglite-data');
-  if (!fs.existsSync(resolvedDir)) {
-    fs.mkdirSync(resolvedDir, { recursive: true });
-  }
+  const pglite = dataDir ? new PGlite(dataDir) : new PGlite();
 
-  const pglite = new PGlite(resolvedDir);
-
-  // 1. DDL Migration
+  // 1. Setup extensions schema & spatial polyfills for standalone execution
   await pglite.exec(`
-    CREATE TABLE IF NOT EXISTS regions (
-      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      code VARCHAR(32) NOT NULL UNIQUE,
-      name_ar VARCHAR(128) NOT NULL,
-      name_en VARCHAR(128) NOT NULL,
-      polygon_geojson JSONB,
-      is_active BOOLEAN NOT NULL DEFAULT true,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-    );
+    CREATE SCHEMA IF NOT EXISTS extensions;
+    CREATE SCHEMA IF NOT EXISTS app;
 
-    CREATE TABLE IF NOT EXISTS users (
-      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      phone VARCHAR(20) UNIQUE,
-      email VARCHAR(255) UNIQUE,
-      password_hash VARCHAR(255),
-      full_name VARCHAR(255),
-      region_id UUID REFERENCES regions(id),
-      is_active BOOLEAN NOT NULL DEFAULT true,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
-    );
+    DO $$
+    BEGIN
+      IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'geography') THEN
+        CREATE DOMAIN extensions.geography AS text;
+      END IF;
+      IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'geometry') THEN
+        CREATE DOMAIN extensions.geometry AS text;
+      END IF;
+      IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'citext') THEN
+        CREATE DOMAIN extensions.citext AS text;
+      END IF;
+    END $$;
 
-    CREATE TABLE IF NOT EXISTS roles (
-      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      name VARCHAR(64) NOT NULL UNIQUE,
-      description TEXT,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-    );
+    CREATE OR REPLACE FUNCTION extensions.gen_random_uuid()
+    RETURNS uuid AS $$
+      SELECT md5(random()::text || clock_timestamp()::text)::uuid;
+    $$ LANGUAGE sql;
 
-    CREATE TABLE IF NOT EXISTS permissions (
-      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      name VARCHAR(128) NOT NULL UNIQUE,
-      resource VARCHAR(64) NOT NULL,
-      action VARCHAR(64) NOT NULL,
-      description TEXT,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-    );
+    CREATE OR REPLACE FUNCTION extensions.ST_SetSRID(geom text, srid int)
+    RETURNS text AS $$ SELECT geom; $$ LANGUAGE sql IMMUTABLE;
 
-    CREATE TABLE IF NOT EXISTS user_roles (
-      user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-      role_id UUID NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
-      PRIMARY KEY (user_id, role_id)
-    );
+    CREATE OR REPLACE FUNCTION extensions.ST_MakePoint(lon float8, lat float8)
+    RETURNS text AS $$ SELECT lon::text || ',' || lat::text; $$ LANGUAGE sql IMMUTABLE;
 
-    CREATE TABLE IF NOT EXISTS role_permissions (
-      role_id UUID NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
-      permission_id UUID NOT NULL REFERENCES permissions(id) ON DELETE CASCADE,
-      PRIMARY KEY (role_id, permission_id)
-    );
+    CREATE OR REPLACE FUNCTION extensions.ST_AsText(geom text)
+    RETURNS text AS $$ SELECT geom; $$ LANGUAGE sql IMMUTABLE;
 
-    CREATE TABLE IF NOT EXISTS sessions (
-      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-      refresh_token_hash VARCHAR(255) NOT NULL,
-      device_info VARCHAR(255),
-      ip_address VARCHAR(64),
-      user_agent TEXT,
-      expires_at TIMESTAMPTZ NOT NULL,
-      revoked_at TIMESTAMPTZ,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-    );
+    CREATE OR REPLACE FUNCTION extensions.ST_Distance(geom1 text, geom2 text)
+    RETURNS float8 AS $$
+    DECLARE
+      p1 text[] := string_to_array(geom1, ',');
+      p2 text[] := string_to_array(geom2, ',');
+      lon1 float8 := p1[1]::float8;
+      lat1 float8 := p1[2]::float8;
+      lon2 float8 := p2[1]::float8;
+      lat2 float8 := p2[2]::float8;
+      dlat float8 := radians(lat2 - lat1);
+      dlon float8 := radians(lon2 - lon1);
+      a float8;
+      c float8;
+    BEGIN
+      a := sin(dlat/2)^2 + cos(radians(lat1)) * cos(radians(lat2)) * sin(dlon/2)^2;
+      c := 2 * atan2(sqrt(a), sqrt(1-a));
+      RETURN 6371000 * c;
+    END;
+    $$ LANGUAGE plpgsql IMMUTABLE;
 
-    CREATE TABLE IF NOT EXISTS otp_challenges (
-      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      phone VARCHAR(20) NOT NULL,
-      hashed_code VARCHAR(255) NOT NULL,
-      attempts INT NOT NULL DEFAULT 0,
-      max_attempts INT NOT NULL DEFAULT 3,
-      resend_available_at TIMESTAMPTZ NOT NULL,
-      expires_at TIMESTAMPTZ NOT NULL,
-      verified_at TIMESTAMPTZ,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-    );
-
-    CREATE TABLE IF NOT EXISTS settings (
-      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      key VARCHAR(128) NOT NULL,
-      value JSONB NOT NULL,
-      region_id UUID REFERENCES regions(id),
-      updated_by UUID REFERENCES users(id),
-      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
-    );
-
-    CREATE TABLE IF NOT EXISTS audit_logs (
-      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      user_id UUID REFERENCES users(id),
-      action VARCHAR(64) NOT NULL,
-      entity_type VARCHAR(64) NOT NULL,
-      entity_id VARCHAR(128),
-      before_state JSONB,
-      after_state JSONB,
-      ip_address VARCHAR(64),
-      user_agent TEXT,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-    );
-
-    CREATE TABLE IF NOT EXISTS outbox (
-      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      event_name VARCHAR(128) NOT NULL,
-      aggregate_id VARCHAR(128) NOT NULL,
-      payload JSONB NOT NULL,
-      status VARCHAR(32) NOT NULL DEFAULT 'pending',
-      retry_count INT NOT NULL DEFAULT 0,
-      error TEXT,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-      processed_at TIMESTAMPTZ
-    );
-
-    CREATE TABLE IF NOT EXISTS vehicle_types (
-      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      code VARCHAR(32) NOT NULL UNIQUE,
-      name_ar VARCHAR(128) NOT NULL,
-      max_weight_kg INT NOT NULL,
-      max_volume_m3 NUMERIC(5,2) NOT NULL,
-      dimensions JSONB,
-      escalation_rank INT NOT NULL,
-      icon VARCHAR(64),
-      active BOOLEAN NOT NULL DEFAULT true,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
-    );
-
-    CREATE TABLE IF NOT EXISTS service_actions (
-      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      code VARCHAR(32) NOT NULL UNIQUE,
-      name_ar VARCHAR(128) NOT NULL,
-      icon VARCHAR(64),
-      sort_order INT NOT NULL,
-      config JSONB NOT NULL DEFAULT '{}',
-      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
-    );
-
-    CREATE TABLE IF NOT EXISTS value_tiers (
-      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      code VARCHAR(32) NOT NULL UNIQUE,
-      name_ar VARCHAR(128) NOT NULL,
-      min_minor BIGINT NOT NULL,
-      max_minor BIGINT,
-      rank INT NOT NULL,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
-    );
+    CREATE OR REPLACE FUNCTION extensions.ST_DWithin(geom1 text, geom2 text, radius_m float8)
+    RETURNS boolean AS $$
+      SELECT extensions.ST_Distance(geom1, geom2) <= radius_m;
+    $$ LANGUAGE sql IMMUTABLE;
   `);
+
+  // 2. Find and apply all 10 SQL migrations sequentially
+  const possiblePaths = [
+    path.resolve(process.cwd(), 'supabase/migrations'),
+    path.resolve(process.cwd(), '../../supabase/migrations'),
+    path.resolve(__dirname, '../../../../supabase/migrations'),
+  ];
+
+  let migrationsDir = possiblePaths.find((p) => fs.existsSync(p));
+  if (migrationsDir) {
+    const migrationFiles = fs
+      .readdirSync(migrationsDir)
+      .filter((f) => f.endsWith('.sql') && !f.endsWith('.down.sql'))
+      .sort();
+
+    for (const file of migrationFiles) {
+      const sqlContent = fs.readFileSync(path.join(migrationsDir, file), 'utf8');
+      const cleanedSql = sqlContent
+        .replace(/CREATE EXTENSION IF NOT EXISTS "uuid-ossp"[^;]*;/gi, '')
+        .replace(/CREATE EXTENSION IF NOT EXISTS "pgcrypto"[^;]*;/gi, '')
+        .replace(/CREATE EXTENSION IF NOT EXISTS "postgis"[^;]*;/gi, '')
+        .replace(/CREATE EXTENSION IF NOT EXISTS "pg_trgm"[^;]*;/gi, '')
+        .replace(/CREATE EXTENSION IF NOT EXISTS "citext"[^;]*;/gi, '')
+        .replace(/extensions\.geography\([^)]+\)/gi, 'extensions.geography')
+        .replace(/CREATE\s+(?:UNIQUE\s+)?INDEX[^;]+USING\s+(?:GIST|GIN)[^;]+;/gi, '-- [pglite-wasm: spatial/trgm index bypassed];');
+
+      await pglite.exec(cleanedSql);
+    }
+
+    // Apply Seed if seed file exists
+    const possibleSeedPaths = [
+      path.resolve(process.cwd(), 'supabase/seed.sql'),
+      path.resolve(process.cwd(), '../../supabase/seed.sql'),
+      path.resolve(__dirname, '../../../../supabase/seed.sql'),
+    ];
+    const seedPath = possibleSeedPaths.find((p) => fs.existsSync(p));
+    if (seedPath) {
+      const seedSql = fs.readFileSync(seedPath, 'utf8');
+      await pglite.exec(seedSql);
+    }
+  }
 
   const db = drizzle(pglite, { schema });
 
-  // 2. Idempotent Seeds Check
-  const existingRegions = await pglite.query('SELECT id, code FROM regions LIMIT 1');
-  if (existingRegions.rows.length === 0) {
-    // Seed Base Region: Hadayek al-Ahram
-    const [region] = await db
-      .insert(schema.regions)
-      .values({
-        code: 'EG-GZ-HDA',
-        nameAr: 'الجيزة - حدائق الأهرام',
-        nameEn: 'Giza - Hadayek al-Ahram',
-        isActive: true,
-      })
-      .returning();
-
-    if (!region) {
-      throw new Error('Failed to seed base region');
-    }
-
-    // Seed Roles
-    const seededRoles = await db
-      .insert(schema.roles)
-      .values([
-        { name: 'admin', description: 'System Administrator' },
-        { name: 'customer', description: 'Customer' },
-        { name: 'driver', description: 'Driver' },
-        { name: 'support', description: 'Support Agent' },
-      ])
-      .returning();
-
-    const adminRole = seededRoles.find((r) => r.name === 'admin');
-
-    // Seed Permissions
-    const seededPerms = await db
-      .insert(schema.permissions)
-      .values([
-        { name: 'users:read', resource: 'users', action: 'read', description: 'View user profiles' },
-        { name: 'users:write', resource: 'users', action: 'write', description: 'Edit user accounts' },
-        { name: 'roles:manage', resource: 'roles', action: 'manage', description: 'Assign roles & permissions' },
-        { name: 'catalog:read', resource: 'catalog', action: 'read', description: 'Read catalog' },
-        { name: 'catalog:write', resource: 'catalog', action: 'write', description: 'Update catalog' },
-        { name: 'settings:read', resource: 'settings', action: 'read', description: 'View settings' },
-        { name: 'settings:write', resource: 'settings', action: 'write', description: 'Modify settings' },
-        { name: 'audit:read', resource: 'audit', action: 'read', description: 'View audit logs' },
-      ])
-      .returning();
-
-    // Map Admin Permissions
-    if (adminRole) {
-      await db.insert(schema.rolePermissions).values(
-        seededPerms.map((p) => ({
-          roleId: adminRole.id,
-          permissionId: p.id,
-        })),
-      );
-    }
-
-    // Seed Default Admin User
+  // 3. Ensure Default Admin User exists for tests/console
+  const existingAdmin = await pglite.query<{ id: string }>('SELECT id FROM app.users WHERE email = $1 LIMIT 1', ['admin@wasel.local']);
+  if (existingAdmin.rows.length === 0) {
     const passwordHash = await bcrypt.hash('Admin@123456', 10);
+    const [region] = await db.select().from(schema.regions).limit(1);
+    const [adminRole] = await db.select().from(schema.roles).where(eq(schema.roles.name, 'admin')).limit(1);
+
     const [adminUser] = await db
       .insert(schema.users)
       .values({
         email: 'admin@wasel.local',
         passwordHash,
         fullName: 'مدير النظام الأول',
-        regionId: region.id,
+        regionId: region?.id,
         isActive: true,
       })
       .returning();
@@ -238,22 +134,6 @@ export async function initEmbeddedDatabase(dataDir?: string) {
         roleId: adminRole.id,
       });
     }
-
-    // Seed Vehicle Types (Approved fleet: bicycle, motorcycle, tricycle, half-truck, jumbo)
-    await db.insert(schema.vehicleTypes).values([
-      { code: 'bicycle', nameAr: 'دراجة هوائية', maxWeightKg: 15, maxVolumeM3: '0.05', escalationRank: 1, icon: 'bike', active: true },
-      { code: 'motorcycle', nameAr: 'دراجة نارية (موتوسيكل)', maxWeightKg: 40, maxVolumeM3: '0.15', escalationRank: 2, icon: 'motorcycle', active: true },
-      { code: 'tricycle', nameAr: 'تروسيكل', maxWeightKg: 400, maxVolumeM3: '1.50', escalationRank: 3, icon: 'tricycle', active: true },
-      { code: 'half_truck', nameAr: 'نصف نقل (بيك آب)', maxWeightKg: 1200, maxVolumeM3: '5.00', escalationRank: 4, icon: 'truck-pickup', active: true },
-      { code: 'jumbo', nameAr: 'جامبو (نقل خفيف)', maxWeightKg: 3500, maxVolumeM3: '15.00', escalationRank: 5, icon: 'truck', active: true },
-    ]);
-
-    // Seed Settings
-    await db.insert(schema.settings).values([
-      { key: 'otp_expiry_minutes', value: { value: 5 }, regionId: region.id },
-      { key: 'otp_resend_cooldown_seconds', value: { value: 60 }, regionId: region.id },
-      { key: 'otp_max_attempts', value: { value: 3 }, regionId: region.id },
-    ]);
   }
 
   return { pglite, db };

@@ -42,12 +42,14 @@ BEGIN
   IF NOT v_transition_exists THEN
     RAISE EXCEPTION 'Illegal status transition for entity %: cannot transition from "%" to "%"',
       TG_TABLE_NAME, OLD.status, NEW.status
-      USING ERRCODE = '23514'; -- check_violation
+      USING ERRCODE = '23514', HINT = 'ILLEGAL_TRANSITION';
   END IF;
 
   RETURN NEW;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SECURITY INVOKER SET search_path = app, extensions, pg_temp;
+
+REVOKE EXECUTE ON FUNCTION app.guard_status_transition() FROM public, anon, authenticated;
 
 COMMENT ON FUNCTION app.guard_status_transition() IS 'Generic before-update trigger rejecting transitions not registered in app.status_transitions';
 
@@ -59,15 +61,18 @@ VALUES
   ('orders', 'draft', 'cancelled', '{customer,admin}', 'Customer cancels draft order'),
   ('orders', 'published', 'matching', '{system,customer,admin}', 'Matching engine begins driver dispatch'),
   ('orders', 'published', 'offers_received', '{system,driver,admin}', 'First driver offer submitted'),
+  ('orders', 'published', 'agreed', '{system,driver,customer,admin}', 'Direct acceptance of shopping order at minimum fare or direct assign'),
   ('orders', 'published', 'cancelled', '{customer,admin}', 'Customer cancels published order'),
   ('orders', 'published', 'expired', '{system,admin}', 'Order expired without offers'),
   ('orders', 'matching', 'offers_received', '{system,driver,admin}', 'Driver submitted offer'),
+  ('orders', 'matching', 'agreed', '{system,driver,customer,admin}', 'Direct acceptance while in matching'),
   ('orders', 'matching', 'cancelled', '{customer,admin}', 'Customer cancelled while matching'),
   ('orders', 'matching', 'expired', '{system,admin}', 'Matching timeout reached'),
   ('orders', 'offers_received', 'agreed', '{customer,admin}', 'Customer accepts driver offer'),
   ('orders', 'offers_received', 'cancelled', '{customer,admin}', 'Customer cancelled before agreement'),
   ('orders', 'offers_received', 'expired', '{system,admin}', 'Offers expired without agreement'),
   ('orders', 'agreed', 'in_progress', '{driver,admin}', 'Driver starts order execution'),
+  ('orders', 'agreed', 'completed', '{driver,customer,admin}', 'Order completed from agreed'),
   ('orders', 'agreed', 'cancelled', '{customer,driver,admin}', 'Agreement cancelled before pickup'),
   ('orders', 'in_progress', 'completed', '{driver,customer,admin}', 'Order completed successfully'),
   ('orders', 'in_progress', 'disputed', '{customer,driver,admin}', 'Dispute raised during execution'),

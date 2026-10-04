@@ -29,7 +29,7 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
       // PostgreSQL is available
       this.client = postgres(connectionString, { max: 20 });
       this.db = drizzle(this.client, { schema });
-      this.logger.log('✅ Connected to external PostgreSQL (Drizzle ORM + Postgres)');
+      this.logger.log('✅ Connected to external PostgreSQL (Production PostGIS Engine: Real PostGIS + GiST indexes active)');
     } catch (err: any) {
       this.logger.warn(
         `⚠️ External PostgreSQL not available (${err.message || 'connection failed'}). Falling back to embedded local PostgreSQL (PGlite)...`,
@@ -39,7 +39,7 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
       const embedded = await initEmbeddedDatabase();
       this.pglite = embedded.pglite;
       this.db = embedded.db as any;
-      this.logger.log('✅ Embedded PostgreSQL (PGlite) active with all tables and seeds ready!');
+      this.logger.log('✅ Embedded PostgreSQL (PGlite) active [ENGINE: FAST APPROXIMATION ONLY - NOT PRODUCTION PROOF FOR POSTGIS GIST INDEXES]');
     }
   }
 

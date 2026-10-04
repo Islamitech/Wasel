@@ -1,9 +1,10 @@
-import { pgTable, uuid, varchar, text, timestamp, integer } from 'drizzle-orm/pg-core';
+import { uuid, varchar, text, timestamp, integer } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
+import { appSchema } from './common.js';
 import { users } from './users.js';
 
-export const sessions = pgTable('sessions', {
-  id: uuid('id').default(sql`gen_random_uuid()`).primaryKey(),
+export const sessions = appSchema.table('sessions', {
+  id: uuid('id').default(sql`extensions.gen_random_uuid()`).primaryKey(),
   userId: uuid('user_id')
     .notNull()
     .references(() => users.id, { onDelete: 'cascade' }),
@@ -16,8 +17,8 @@ export const sessions = pgTable('sessions', {
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 });
 
-export const otpChallenges = pgTable('otp_challenges', {
-  id: uuid('id').default(sql`gen_random_uuid()`).primaryKey(),
+export const otpChallenges = appSchema.table('otp_challenges', {
+  id: uuid('id').default(sql`extensions.gen_random_uuid()`).primaryKey(),
   phone: varchar('phone', { length: 20 }).notNull(),
   hashedCode: varchar('hashed_code', { length: 255 }).notNull(),
   attempts: integer('attempts').default(0).notNull(),

@@ -110,7 +110,9 @@ BEGIN
 
   RETURN v_customer_visit_count + v_external_visit_count;
 END;
-$$ LANGUAGE plpgsql STABLE;
+$$ LANGUAGE plpgsql STABLE SECURITY INVOKER SET search_path = app, extensions, pg_temp;
+
+REVOKE EXECUTE ON FUNCTION app.count_billable_visits(UUID) FROM public, anon, authenticated;
 
 COMMENT ON FUNCTION app.count_billable_visits(UUID) IS 'Computes billable visit count respecting customer-point explicit task rules and external multi-stop deduplication.';
 
@@ -163,11 +165,15 @@ BEGIN
   -- 3. Billable visits
   v_visits := app.count_billable_visits(p_order_id);
 
-  -- 4. Expected wait hours
-  SELECT COALESCE(SUM(expected_duration_minutes), 0) / 60.0
-  INTO v_wait_hours
-  FROM app.stops
-  WHERE order_id = p_order_id;
+  -- 4. Expected wait hours (Waiting is billable ONLY when customer chose wait_mode = 'wait')
+  IF v_order.wait_mode = 'wait' THEN
+    SELECT COALESCE(SUM(expected_duration_minutes), 0) / 60.0
+    INTO v_wait_hours
+    FROM app.stops
+    WHERE order_id = p_order_id;
+  ELSE
+    v_wait_hours := 0;
+  END IF;
 
   -- 5. Calculate components
   v_stop_fees := v_visits * v_rule.stop_fee_minor;
@@ -178,7 +184,9 @@ BEGIN
 
   RETURN v_total;
 END;
-$$ LANGUAGE plpgsql STABLE;
+$$ LANGUAGE plpgsql STABLE SECURITY INVOKER SET search_path = app, extensions, pg_temp;
+
+REVOKE EXECUTE ON FUNCTION app.calculate_min_fare(UUID) FROM public, anon, authenticated;
 
 COMMENT ON FUNCTION app.calculate_min_fare(UUID) IS 'Calculates recommended minimum driver fare based on visits, expected wait duration, and value tier minimum.';
 
@@ -225,20 +233,24 @@ BEGIN
   -- 3. Count billable visits
   v_visits := app.count_billable_visits(p_order_id);
 
-  -- 4. Calculate actual wait time from stop_visits (or expected wait if no departed timestamps)
-  SELECT COALESCE(
-    SUM(EXTRACT(EPOCH FROM (COALESCE(departed_at, now()) - arrived_at)) / 3600.0),
-    0
-  )
-  INTO v_actual_wait_hours
-  FROM app.stop_visits
-  WHERE order_id = p_order_id;
-
-  IF v_actual_wait_hours = 0 THEN
-    SELECT COALESCE(SUM(expected_duration_minutes), 0) / 60.0
+  -- 4. Calculate actual wait time: waiting is billable ONLY when customer chose wait_mode = 'wait'
+  IF v_order.wait_mode = 'wait' THEN
+    SELECT COALESCE(
+      SUM(EXTRACT(EPOCH FROM (COALESCE(departed_at, now()) - arrived_at)) / 3600.0),
+      0
+    )
     INTO v_actual_wait_hours
-    FROM app.stops
+    FROM app.stop_visits
     WHERE order_id = p_order_id;
+
+    IF v_actual_wait_hours = 0 THEN
+      SELECT COALESCE(SUM(expected_duration_minutes), 0) / 60.0
+      INTO v_actual_wait_hours
+      FROM app.stops
+      WHERE order_id = p_order_id;
+    END IF;
+  ELSE
+    v_actual_wait_hours := 0;
   END IF;
 
   -- 5. Sum of actual verified/submitted invoices
@@ -289,7 +301,9 @@ BEGIN
 
   RETURN v_total;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SECURITY INVOKER SET search_path = app, extensions, pg_temp;
+
+REVOKE EXECUTE ON FUNCTION app.calculate_final_fare(UUID) FROM public, anon, authenticated;
 
 COMMENT ON FUNCTION app.calculate_final_fare(UUID) IS 'Computes final billable fare from actual visits, waiting time, and verified invoice amounts.';
 

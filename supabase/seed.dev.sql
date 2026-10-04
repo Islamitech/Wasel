@@ -71,12 +71,14 @@ BEGIN
     RAISE EXCEPTION 'Prerequisite seed data missing. Run seed.sql before running seed.dev.sql';
   END IF;
 
-  -- 2. Generate 50 Captains
+  -- 2. Generate 50 Captains with RESERVED FAKE test numbers and identifiers
   FOR i IN 1..50 LOOP
-    v_full_name := 'كابتن ' || v_first_names[1 + ((i * 3 + 1) % array_length(v_first_names, 1))] || ' ' ||
+    v_full_name := 'كابتن تجريبي ' || v_first_names[1 + ((i * 3 + 1) % array_length(v_first_names, 1))] || ' ' ||
                                v_last_names[1 + ((i * 7 + 3) % array_length(v_last_names, 1))];
-    v_phone := '+2010' || lpad((50000000 + i * 137)::text, 8, '0');
-    v_email := 'captain_' || i || '@wasel.internal';
+    -- Reserved test phone pattern: +20 000 000 XXXX (000 is invalid unassigned carrier in Egypt)
+    v_phone := '+20000000' || lpad(i::text, 4, '0');
+    -- Reserved RFC 2606 .invalid test domain
+    v_email := 'test.captain.' || i || '@test.wasel.invalid';
 
     -- Location spread within Hadayek al-Ahram gates (approx 29.968 to 29.982 N, 31.105 to 31.122 E)
     v_lat := 29.9680 + (mod(i * 17, 140) / 10000.0);
@@ -99,10 +101,8 @@ BEGIN
 
     -- Pick vehicle type: weighted towards motorcycle (motorcycle/tricycle common in Hadayek)
     v_vtype_id := v_vehicle_types[1 + (i % array_length(v_vehicle_types, 1))];
-    v_plate := v_plates_char[1 + (i % 10)] || ' ' ||
-               v_plates_char[1 + ((i + 3) % 10)] || ' ' ||
-               v_plates_char[1 + ((i + 7) % 10)] || ' ' ||
-               (1000 + (i * 97) % 8999)::text;
+    -- Clearly fake test plate format
+    v_plate := 'ت س ت ' || (1000 + i)::text;
 
     -- Subscription: 80% active trial, 20% active monthly
     IF i % 4 = 0 THEN

@@ -229,7 +229,9 @@ BEGIN
   ORDER BY distance_meters ASC
   LIMIT 50;
 END;
-$$ LANGUAGE plpgsql STABLE;
+$$ LANGUAGE plpgsql STABLE SECURITY INVOKER SET search_path = app, extensions, pg_temp;
+
+REVOKE EXECUTE ON FUNCTION app.find_eligible_drivers(UUID, INT, BOOLEAN) FROM public, anon, authenticated;
 
 COMMENT ON FUNCTION app.find_eligible_drivers(UUID, INT, BOOLEAN) IS 'Ultra-fast PostGIS matching query filtering by distance, active subscription, verification level, and vehicle class capacity.';
 

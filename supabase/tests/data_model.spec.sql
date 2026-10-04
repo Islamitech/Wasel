@@ -16,10 +16,6 @@
 
 BEGIN;
 
-RAISE NOTICE '==============================================================';
-RAISE NOTICE ' Starting Wasel Data Model Relational & Business Logic Tests  ';
-RAISE NOTICE '==============================================================';
-
 -- Setup temporary test context
 DO $$
 DECLARE
@@ -52,6 +48,10 @@ DECLARE
   v_start_time TIMESTAMPTZ;
   v_elapsed_ms NUMERIC;
 BEGIN
+  RAISE NOTICE '==============================================================';
+  RAISE NOTICE ' Starting Wasel Data Model Relational & Business Logic Tests  ';
+  RAISE NOTICE '==============================================================';
+
   -- 1. Fetch prerequisite IDs
   SELECT id INTO v_region_id FROM app.regions WHERE code = 'hadayek_ahram';
   SELECT id INTO v_action_buy FROM app.service_actions WHERE code = 'buy';
@@ -65,14 +65,14 @@ BEGIN
 
   -- Create test users & profiles
   INSERT INTO app.users (phone, full_name, region_id)
-  VALUES ('+201099990001', 'عميل تجريبي للتحقق', v_region_id)
+  VALUES ('+200000009991', 'عميل تجريبي للتحقق', v_region_id)
   RETURNING id INTO v_cust_user_id;
 
   INSERT INTO app.customer_profiles (id, region_id)
   VALUES (v_cust_user_id, v_region_id);
 
   INSERT INTO app.users (phone, full_name, region_id)
-  VALUES ('+201099990002', 'كابتن تجريبي للتحقق', v_region_id)
+  VALUES ('+200000009992', 'كابتن تجريبي للتحقق', v_region_id)
   RETURNING id INTO v_driver_user_id;
 
   INSERT INTO app.driver_profiles (

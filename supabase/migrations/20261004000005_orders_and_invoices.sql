@@ -111,7 +111,9 @@ BEGIN
 
   RETURN NEW;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SECURITY INVOKER SET search_path = app, extensions, pg_temp;
+
+REVOKE EXECUTE ON FUNCTION app.check_max_stops_per_order() FROM public, anon, authenticated;
 
 CREATE TRIGGER trg_stops_max_limit
   BEFORE INSERT ON app.stops

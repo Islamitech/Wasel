@@ -1,10 +1,11 @@
-import { pgTable, uuid, varchar, jsonb, timestamp, text, integer } from 'drizzle-orm/pg-core';
+import { uuid, varchar, jsonb, timestamp, text, integer } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
+import { appSchema } from './common.js';
 import { regions } from './regions.js';
 import { users } from './users.js';
 
-export const settings = pgTable('settings', {
-  id: uuid('id').default(sql`gen_random_uuid()`).primaryKey(),
+export const settings = appSchema.table('settings', {
+  id: uuid('id').default(sql`extensions.gen_random_uuid()`).primaryKey(),
   key: varchar('key', { length: 128 }).notNull(),
   value: jsonb('value').notNull(),
   regionId: uuid('region_id').references(() => regions.id),
@@ -13,8 +14,8 @@ export const settings = pgTable('settings', {
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 });
 
-export const auditLogs = pgTable('audit_logs', {
-  id: uuid('id').default(sql`gen_random_uuid()`).primaryKey(),
+export const auditLogs = appSchema.table('audit_logs', {
+  id: uuid('id').default(sql`extensions.gen_random_uuid()`).primaryKey(),
   userId: uuid('user_id').references(() => users.id),
   action: varchar('action', { length: 64 }).notNull(),
   entityType: varchar('entity_type', { length: 64 }).notNull(),
@@ -26,8 +27,8 @@ export const auditLogs = pgTable('audit_logs', {
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 });
 
-export const outbox = pgTable('outbox', {
-  id: uuid('id').default(sql`gen_random_uuid()`).primaryKey(),
+export const outbox = appSchema.table('outbox', {
+  id: uuid('id').default(sql`extensions.gen_random_uuid()`).primaryKey(),
   eventName: varchar('event_name', { length: 128 }).notNull(),
   aggregateId: varchar('aggregate_id', { length: 128 }).notNull(),
   payload: jsonb('payload').notNull(),

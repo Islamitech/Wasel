@@ -67,6 +67,25 @@ CREATE OR REPLACE FUNCTION app.enforce_agreement_immutability()
 RETURNS TRIGGER AS $$
 BEGIN
   IF OLD.locked_at IS NOT NULL THEN
+    -- Allow mutual amendment if an approved amendment exists for this agreement or bypass is active
+    IF current_setting('app.allow_agreement_amendment', true) = 'on' THEN
+      RETURN NEW;
+    END IF;
+
+    IF EXISTS (
+      SELECT 1 FROM app.agreement_amendments
+      WHERE agreement_id = NEW.id
+        AND status = 'approved'
+        AND (new_fare_minor = NEW.agreed_fare_minor OR NEW.agreed_fare_minor = OLD.agreed_fare_minor)
+    ) THEN
+      -- Customer, driver, and order IDs can never be altered even with amendment
+      IF NEW.customer_id IS NOT DISTINCT FROM OLD.customer_id
+         AND NEW.driver_id IS NOT DISTINCT FROM OLD.driver_id
+         AND NEW.order_id IS NOT DISTINCT FROM OLD.order_id THEN
+        RETURN NEW;
+      END IF;
+    END IF;
+
     IF NEW.agreement_snapshot IS DISTINCT FROM OLD.agreement_snapshot
        OR NEW.agreed_fare_minor IS DISTINCT FROM OLD.agreed_fare_minor
        OR NEW.customer_id IS DISTINCT FROM OLD.customer_id
@@ -78,7 +97,9 @@ BEGIN
   END IF;
   RETURN NEW;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SECURITY INVOKER SET search_path = app, extensions, pg_temp;
+
+REVOKE EXECUTE ON FUNCTION app.enforce_agreement_immutability() FROM public, anon, authenticated;
 
 CREATE TRIGGER trg_agreements_immutability
   BEFORE UPDATE ON app.agreements
