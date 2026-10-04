@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import * as path from 'path';
 import * as fs from 'fs';
+import request from 'supertest';
 import {
   Point,
   validatePoint,
@@ -9,6 +10,7 @@ import {
   calculateHaversineDistanceMeters,
   isPointInsidePolygon,
 } from '../src/common/geo/index.js';
+import { getTestContext } from './test-harness.js';
 
 describe('Phase 2: Database & Geo Hardening (D-01, D-02)', () => {
   describe('D-01: Coordinate Validation & Point Invariant', () => {
@@ -76,6 +78,47 @@ describe('Phase 2: Database & Geo Hardening (D-01, D-02)', () => {
       // Great-circle distance is approx 463 meters
       expect(distMeters).toBeGreaterThan(455);
       expect(distMeters).toBeLessThan(475);
+    });
+
+    it('round-trip test: creates order with point (29.9735, 31.1105) and reads back identical coordinates', async () => {
+      const ctx = await getTestContext();
+      const customer = await ctx.createCustomer({ phone: '+201088776655' });
+      const customerToken = customer.token;
+
+      const targetPoint = { lat: 29.9735, lng: 31.1105 };
+
+      const createRes = await request(ctx.app.getHttpServer())
+        .post('/v1/orders')
+        .set('Authorization', `Bearer ${customerToken}`)
+        .send({
+          regionId: ctx.regionId,
+          valueTierId: ctx.defaultValueTierId,
+          loadSizeId: ctx.defaultLoadSizeId,
+          waitMode: 'notify',
+          customerLocation: targetPoint,
+          stops: [
+            {
+              actionId: ctx.defaultActionId,
+              location: targetPoint,
+              description: 'نقطة اختبار ذهاب وإياب الإحداثيات',
+              expectedDurationMinutes: 10,
+            },
+          ],
+        });
+
+      expect(createRes.status).toBe(201);
+      const orderId = createRes.body.id;
+      expect(orderId).toBeDefined();
+
+      const getRes = await request(ctx.app.getHttpServer())
+        .get(`/v1/orders/${orderId}`)
+        .set('Authorization', `Bearer ${customerToken}`);
+
+      expect(getRes.status).toBe(200);
+      expect(getRes.body.customerLocation.lat).toBeCloseTo(29.9735, 4);
+      expect(getRes.body.customerLocation.lng).toBeCloseTo(31.1105, 4);
+      expect(getRes.body.stops[0].location.lat).toBeCloseTo(29.9735, 4);
+      expect(getRes.body.stops[0].location.lng).toBeCloseTo(31.1105, 4);
     });
   });
 

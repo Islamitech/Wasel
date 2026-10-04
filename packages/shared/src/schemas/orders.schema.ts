@@ -1,10 +1,28 @@
 import { z } from 'zod';
 import { OrderStatus, WaitMode } from '../enums/index.js';
 
-export const LocationCoordinateSchema = z.object({
-  latitude: z.number().min(-90).max(90),
-  longitude: z.number().min(-180).max(180),
-});
+export const LocationCoordinateSchema = z.preprocess(
+  (val: unknown) => {
+    if (val && typeof val === 'object') {
+      const obj = val as Record<string, unknown>;
+      const lat = typeof obj.lat === 'number' ? obj.lat : typeof obj.latitude === 'number' ? obj.latitude : undefined;
+      const lng = typeof obj.lng === 'number' ? obj.lng : typeof obj.longitude === 'number' ? obj.longitude : undefined;
+      return {
+        latitude: lat,
+        longitude: lng,
+        lat,
+        lng,
+      };
+    }
+    return val;
+  },
+  z.object({
+    latitude: z.number().min(-90).max(90),
+    longitude: z.number().min(-180).max(180),
+    lat: z.number().min(-90).max(90).optional(),
+    lng: z.number().min(-180).max(180).optional(),
+  }),
+);
 
 export type LocationCoordinateDto = z.infer<typeof LocationCoordinateSchema>;
 
