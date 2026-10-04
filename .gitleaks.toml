@@ -4,7 +4,12 @@ title = "Gitleaks Configuration for Wasel"
 useDefault = true
 
 [allowlist]
-description = "Allow dummy 64-hex dev/test encryption key used in test, ci, and env example"
+description = "Allow specific dummy 64-hex key strictly within designated test, CI, and example paths"
 regexes = [
     '''0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef'''
+]
+paths = [
+    '''^\.env\.example$''',
+    '''^\.github/workflows/ci\.yml$''',
+    '''^apps/api/test/otp-security\.spec\.ts$'''
 ]
