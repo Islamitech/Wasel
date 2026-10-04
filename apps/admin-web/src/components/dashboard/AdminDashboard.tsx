@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   AdminOrder,
   AdminOrderState,
@@ -169,12 +169,75 @@ const INITIAL_ACTIONS: CatalogItem[] = [
   { key: 'find', label: 'طلب بلا مكان', enabled: true },
 ];
 
+interface StoredRegisteredCaptain {
+  id: string;
+  name: string;
+  phone: string;
+  vehicle?: string;
+  level?: number;
+  documentName?: string;
+  status?: 'pending' | 'ok';
+}
+
 export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, onLogout }) => {
   const [activeTab, setActiveTab] = useState<TabKey>('dash');
   const [orderFilter, setOrderFilter] = useState<string>('all');
-  const [orders] = useState<AdminOrder[]>(INITIAL_ORDERS);
-  const [docs, setDocs] = useState<DriverVerificationDoc[]>(INITIAL_DOCS);
-  const [subs, setSubs] = useState<DriverSubscription[]>(INITIAL_SUBS);
+
+  const [orders, setOrders] = useState<AdminOrder[]>(() => {
+    try {
+      const stored = localStorage.getItem('wasel_admin_orders');
+      if (stored) return JSON.parse(stored);
+    } catch {
+      // ignore
+    }
+    return INITIAL_ORDERS;
+  });
+
+  const [docs, setDocs] = useState<DriverVerificationDoc[]>(() => {
+    try {
+      const stored = localStorage.getItem('wasel_registered_captains');
+      if (stored) {
+        const parsed: StoredRegisteredCaptain[] = JSON.parse(stored);
+        if (parsed.length > 0) {
+          const mapped: DriverVerificationDoc[] = parsed.map((c) => ({
+            id: c.id,
+            name: c.name,
+            vehicle: c.vehicle || 'موتوسيكل',
+            level: c.level || 1,
+            documentName: c.documentName || 'بطاقة + صورة + رخصة',
+            status: c.status || 'pending',
+          }));
+          return [...mapped, ...INITIAL_DOCS];
+        }
+      }
+    } catch {
+      // ignore
+    }
+    return INITIAL_DOCS;
+  });
+
+  const [subs, setSubs] = useState<DriverSubscription[]>(() => {
+    try {
+      const stored = localStorage.getItem('wasel_registered_captains');
+      if (stored) {
+        const parsed: StoredRegisteredCaptain[] = JSON.parse(stored);
+        if (parsed.length > 0) {
+          const mapped: DriverSubscription[] = parsed.map((c) => ({
+            id: 'sub-' + c.id,
+            name: c.name,
+            plan: 'تجريبي 30 يوماً',
+            daysRemaining: 30,
+            isActive: true,
+          }));
+          return [...mapped, ...INITIAL_SUBS];
+        }
+      }
+    } catch {
+      // ignore
+    }
+    return INITIAL_SUBS;
+  });
+
   const [disputes, setDisputes] = useState<DisputeItem[]>(INITIAL_DISPUTES);
   const [pricing, setPricing] = useState<PricingConfig>({ stopPrice: 10, waitingHourPrice: 35, invoicePercentage: 10 });
   const [whatIf, setWhatIf] = useState<WhatIfConfig>({ visits: 2, waitingHours: 2, invoiceTotal: 100 });
@@ -184,6 +247,31 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, onLogout }
   const [selectedOrder, setSelectedOrder] = useState<AdminOrder | null>(null);
   const [selectedDispute, setSelectedDispute] = useState<DisputeItem | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  // New Driver Form Modal
+  const [isAddDriverOpen, setIsAddDriverOpen] = useState(false);
+  const [newDriverName, setNewDriverName] = useState('');
+  const [newDriverPhone, setNewDriverPhone] = useState('');
+  const [newDriverVehicle, setNewDriverVehicle] = useState('موتوسيكل');
+  const [newDriverLevel, setNewDriverLevel] = useState(1);
+
+  // New Order Form Modal
+  const [isAddOrderOpen, setIsAddOrderOpen] = useState(false);
+  const [newCustomerName, setNewCustomerName] = useState('');
+  const [newDriverAssigned, setNewDriverAssigned] = useState('—');
+  const [newOrderType, setNewOrderType] = useState('تسوق');
+  const [newOrderTier, setNewOrderTier] = useState('200–500');
+  const [newOrderFare, setNewOrderFare] = useState(35);
+  const [newOrderStops, setNewOrderStops] = useState('محل بقالة, محل خضار');
+
+  // Sync to storage on change
+  useEffect(() => {
+    try {
+      localStorage.setItem('wasel_admin_orders', JSON.stringify(orders));
+    } catch {
+      // ignore
+    }
+  }, [orders]);
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
@@ -230,6 +318,90 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, onLogout }
     showToast('تم إغلاق النزاع وتسجيل القرار');
   };
 
+  const handleCreateDriver = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newDriverName.trim() || !newDriverPhone.trim()) {
+      showToast('يرجى إدخال اسم الكابتن ورقم هاتفه');
+      return;
+    }
+
+    const newDoc: DriverVerificationDoc = {
+      id: 'doc-' + Date.now(),
+      name: newDriverName.trim(),
+      vehicle: newDriverVehicle,
+      level: newDriverLevel,
+      documentName: newDriverLevel === 2 ? 'فيش جنائي' : 'بطاقة + صورة + رخصة',
+      status: 'pending',
+    };
+
+    const newSub: DriverSubscription = {
+      id: 'sub-' + Date.now(),
+      name: newDriverName.trim(),
+      plan: 'تجريبي 30 يوماً',
+      daysRemaining: 30,
+      isActive: true,
+    };
+
+    setDocs((prev) => [newDoc, ...prev]);
+    setSubs((prev) => [newSub, ...prev]);
+
+    // Persist in localStorage
+    try {
+      const stored: StoredRegisteredCaptain[] = JSON.parse(
+        localStorage.getItem('wasel_registered_captains') || '[]'
+      );
+      stored.unshift({
+        id: newDoc.id,
+        name: newDoc.name,
+        phone: newDriverPhone.trim(),
+        vehicle: newDoc.vehicle,
+        level: newDoc.level,
+        documentName: newDoc.documentName,
+        status: newDoc.status,
+      });
+      localStorage.setItem('wasel_registered_captains', JSON.stringify(stored));
+    } catch {
+      // ignore
+    }
+
+    setIsAddDriverOpen(false);
+    setNewDriverName('');
+    setNewDriverPhone('');
+    showToast(`تم تسجيل ${newDoc.name} وظهوره في طابور المراجعة والاشتراكات بنجاح`);
+  };
+
+  const handleCreateOrder = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newCustomerName.trim()) {
+      showToast('يرجى إدخال اسم العميل');
+      return;
+    }
+
+    const stopsArray = newOrderStops
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+
+    const newOrder: AdminOrder = {
+      id: `#${Math.floor(1050 + Math.random() * 900)}`,
+      customerName: newCustomerName.trim(),
+      driverName: newDriverAssigned.trim() || '—',
+      taskType: newOrderType,
+      state: 'published',
+      tier: newOrderTier,
+      fare: newOrderFare,
+      stops: stopsArray.length > 0 ? stopsArray : ['نقطة الطلب', 'نقطة التسليم'],
+      visits: stopsArray.length || 1,
+      waitingHours: 0,
+      invoices: [],
+    };
+
+    setOrders((prev) => [newOrder, ...prev]);
+    setIsAddOrderOpen(false);
+    setNewCustomerName('');
+    showToast(`تم إنشاء الطلب ${newOrder.id} وظهوره في جدول الطلبات بنجاح`);
+  };
+
   const filteredOrders = orders.filter((o) => orderFilter === 'all' || o.state === orderFilter);
 
   // 7-day chart mockup data
@@ -240,9 +412,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, onLogout }
     { day: 'الثلاثاء', count: 31 },
     { day: 'الأربعاء', count: 28 },
     { day: 'الخميس', count: 35 },
-    { day: 'الجمعة', count: 42 },
+    { day: 'الجمعة', count: orders.length + 36 },
   ];
-  const maxDayCount = 42;
+  const maxDayCount = orders.length + 36;
 
   return (
     <div className="app">
@@ -261,6 +433,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, onLogout }
               setActiveTab(tab.key);
               setSelectedOrder(null);
               setSelectedDispute(null);
+              setIsAddDriverOpen(false);
+              setIsAddOrderOpen(false);
             }}
           >
             <span>{tab.icon}</span>
@@ -299,6 +473,18 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, onLogout }
           </h2>
           <div className="sp" />
 
+          {activeTab === 'drivers' && (
+            <button className="btn" onClick={() => setIsAddDriverOpen(true)}>
+              ＋ تسجيل كابتن جديد
+            </button>
+          )}
+
+          {activeTab === 'orders' && (
+            <button className="btn" onClick={() => setIsAddOrderOpen(true)}>
+              ＋ تسجيل طلب جديد
+            </button>
+          )}
+
           {activeTab === 'price' && (
             <button
               className="btn"
@@ -328,18 +514,18 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, onLogout }
             <div className="grid">
               <div className="card kpi">
                 <span>طلبات اليوم</span>
-                <b>42</b>
+                <b>{orders.length + 36}</b>
                 <i>▲ 20% عن أمس</i>
               </div>
               <div className="card kpi">
-                <span>كباتن متصلون</span>
-                <b>18</b>
-                <i>من 50 معتمداً</i>
+                <span>كباتن مسجلون ونشطون</span>
+                <b>{subs.filter((s) => s.isActive).length}</b>
+                <i>من {docs.length} كابتن</i>
               </div>
               <div className="card kpi">
                 <span>اشتراكات فعالة</span>
-                <b>31</b>
-                <span>9 تنتهي خلال 7 أيام</span>
+                <b>{subs.filter((s) => s.isActive).length}</b>
+                <span>{subs.filter((s) => s.daysRemaining <= 7 && s.isActive).length} تنتهي قريباً</span>
               </div>
               <div className="card kpi">
                 <span>نزاعات مفتوحة</span>
@@ -384,7 +570,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, onLogout }
                 <div className="line">
                   <span>طلبات بلا سائق منذ +10 د</span>
                   <button className="chip warn" onClick={() => setActiveTab('orders')}>
-                    1 طلب
+                    {orders.filter((o) => o.state === 'published').length} طلب
                   </button>
                 </div>
               </div>
@@ -404,7 +590,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, onLogout }
                     </tr>
                   </thead>
                   <tbody>
-                    {orders.slice(0, 4).map((o) => (
+                    {orders.slice(0, 5).map((o) => (
                       <tr key={o.id} className="click" onClick={() => setSelectedOrder(o)}>
                         <td>
                           <strong>{o.id}</strong>
@@ -442,7 +628,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, onLogout }
                   className={`chip ${orderFilter === st ? 'on' : ''}`}
                   onClick={() => setOrderFilter(st)}
                 >
-                  {ORDER_STATE_META[st].label}
+                  {ORDER_STATE_META[st].label} (
+                  {orders.filter((o) => o.state === st).length})
                 </button>
               ))}
             </div>
@@ -490,7 +677,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, onLogout }
         {activeTab === 'drivers' && (
           <div>
             <div className="card">
-              <h3>طابور مراجعة مستندات الكباتن</h3>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                <h3>طابور مراجعة مستندات الكباتن ({docs.length})</h3>
+                <button className="btn" onClick={() => setIsAddDriverOpen(true)}>
+                  ＋ تسجيل كابتن جديد
+                </button>
+              </div>
               <div className="wrap">
                 <table className="tbl">
                   <thead>
@@ -498,7 +690,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, onLogout }
                       <th>اسم الكابتن</th>
                       <th>نوع المركبة</th>
                       <th>المستند المرفق</th>
-                      <th>مستوى التوثيق المطلوب</th>
+                      <th>مستوى التوثيق</th>
                       <th>الإجراء الإداري</th>
                     </tr>
                   </thead>
@@ -573,7 +765,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, onLogout }
             </div>
 
             <div className="card">
-              <h3>سجل اشتراكات الكباتن</h3>
+              <h3>سجل اشتراكات الكباتن ({subs.length})</h3>
               <div className="wrap">
                 <table className="tbl">
                   <thead>
@@ -890,15 +1082,163 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, onLogout }
         )}
       </main>
 
-      {/* Backdrop for Drawers */}
-      {(selectedOrder || selectedDispute) && (
+      {/* Backdrop for Drawers & Modals */}
+      {(selectedOrder || selectedDispute || isAddDriverOpen || isAddOrderOpen) && (
         <div
           className="backdrop"
           onClick={() => {
             setSelectedOrder(null);
             setSelectedDispute(null);
+            setIsAddDriverOpen(false);
+            setIsAddOrderOpen(false);
           }}
         />
+      )}
+
+      {/* Add New Driver Modal */}
+      {isAddDriverOpen && (
+        <div className="drawer">
+          <div className="head">
+            <h2>تسجيل كابتن جديد</h2>
+            <div className="sp" />
+            <button className="chip" onClick={() => setIsAddDriverOpen(false)}>
+              ✕ إغلاق
+            </button>
+          </div>
+
+          <form onSubmit={handleCreateDriver} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+            <div>
+              <label>اسم الكابتن الكامل</label>
+              <input
+                type="text"
+                value={newDriverName}
+                onChange={(e) => setNewDriverName(e.target.value)}
+                placeholder="مثال: محمد السيد"
+                required
+                autoFocus
+              />
+            </div>
+
+            <div>
+              <label>رقم هاتف الكابتن</label>
+              <input
+                type="tel"
+                value={newDriverPhone}
+                onChange={(e) => setNewDriverPhone(e.target.value)}
+                placeholder="010XXXXXXXX"
+                required
+              />
+            </div>
+
+            <div>
+              <label>نوع المركبة</label>
+              <select value={newDriverVehicle} onChange={(e) => setNewDriverVehicle(e.target.value)}>
+                <option value="موتوسيكل">موتوسيكل</option>
+                <option value="تروسيكل">تروسيكل</option>
+                <option value="دراجة">دراجة</option>
+                <option value="نص نقل">نص نقل</option>
+                <option value="جامبو">جامبو</option>
+              </select>
+            </div>
+
+            <div>
+              <label>مستوى التوثيق المطلوب</label>
+              <select
+                value={newDriverLevel}
+                onChange={(e) => setNewDriverLevel(Number(e.target.value) || 1)}
+              >
+                <option value={1}>مستوى 1 (أساسي: رخصة + بطاقة)</option>
+                <option value={2}>مستوى 2 (فيش وتشبيه جنائي)</option>
+                <option value={3}>مستوى 3 (سمعة وأولوية)</option>
+              </select>
+            </div>
+
+            <button type="submit" className="btn" style={{ width: '100%', justifyContent: 'center', marginTop: '10px' }}>
+              تسجيل الكابتن فوراً
+            </button>
+          </form>
+        </div>
+      )}
+
+      {/* Add New Order Modal */}
+      {isAddOrderOpen && (
+        <div className="drawer">
+          <div className="head">
+            <h2>تسجيل طلب جديد</h2>
+            <div className="sp" />
+            <button className="chip" onClick={() => setIsAddOrderOpen(false)}>
+              ✕ إغلاق
+            </button>
+          </div>
+
+          <form onSubmit={handleCreateOrder} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+            <div>
+              <label>اسم العميل</label>
+              <input
+                type="text"
+                value={newCustomerName}
+                onChange={(e) => setNewCustomerName(e.target.value)}
+                placeholder="مثال: عمر طارق"
+                required
+                autoFocus
+              />
+            </div>
+
+            <div>
+              <label>الكابتن المسند إليه (اختياري)</label>
+              <input
+                type="text"
+                value={newDriverAssigned}
+                onChange={(e) => setNewDriverAssigned(e.target.value)}
+                placeholder="— للطلبات المنشورة بدون إسناد"
+              />
+            </div>
+
+            <div>
+              <label>نوع الخدمة</label>
+              <select value={newOrderType} onChange={(e) => setNewOrderType(e.target.value)}>
+                <option value="تسوق">تسوق</option>
+                <option value="توصيل مع تصليح">توصيل مع تصليح</option>
+                <option value="نقل أثاث ومقتنيات">نقل أثاث ومقتنيات</option>
+                <option value="استلام أمانات">استلام أمانات</option>
+              </select>
+            </div>
+
+            <div>
+              <label>شريحة القيمة التقديرية</label>
+              <select value={newOrderTier} onChange={(e) => setNewOrderTier(e.target.value)}>
+                <option value="<200">أقل من 200 ج</option>
+                <option value="200–500">200 – 500 ج</option>
+                <option value="500–1000">500 – 1000 ج</option>
+                <option value="1000–5000">1000 – 5000 ج</option>
+                <option value=">5000">أكثر من 5000 ج</option>
+              </select>
+            </div>
+
+            <div>
+              <label>الأجرة التقديرية المقترحة (ج)</label>
+              <input
+                type="number"
+                value={newOrderFare}
+                onChange={(e) => setNewOrderFare(Number(e.target.value) || 0)}
+              />
+            </div>
+
+            <div>
+              <label>محطات الطلب (مفصولة بفواصل)</label>
+              <input
+                type="text"
+                value={newOrderStops}
+                onChange={(e) => setNewOrderStops(e.target.value)}
+                placeholder="محل 1, صيدلية, بيت العميل"
+              />
+            </div>
+
+            <button type="submit" className="btn" style={{ width: '100%', justifyContent: 'center', marginTop: '10px' }}>
+              نشر الطلب في اللوحة
+            </button>
+          </form>
+        </div>
       )}
 
       {/* Order Details Drawer */}
