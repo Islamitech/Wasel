@@ -14,6 +14,7 @@
     "test:db:real": "pnpm --filter @wasel/api exec tsx ../../scripts/test-real-postgis.ts",
     "db:migrate": "pnpm --filter @wasel/api db:migrate",
     "db:seed": "pnpm --filter @wasel/api db:seed",
+    "db:seed:dev": "pnpm --filter @wasel/api exec tsx src/database/seed.ts --dev",
     "db:check-drift": "pnpm --filter @wasel/api exec tsx ../../scripts/check-schema-drift.ts",
     "verify:rls": "pnpm --filter @wasel/api exec tsx ../../scripts/verify-rls.ts",
     "test:e2e": "turbo run test:e2e",

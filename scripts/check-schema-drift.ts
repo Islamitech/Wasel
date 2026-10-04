@@ -15,6 +15,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
+import { execSync } from 'child_process';
 
 interface ColumnInfo {
   name: string;
@@ -101,7 +102,9 @@ export function extractDrizzleTablesAndColumns(): Map<string, Map<string, Column
   // Load compiled schema or ts-source
   const schemaPath = path.resolve(__dirname, '../apps/api/dist/database/schema/index.js');
   if (!fs.existsSync(schemaPath)) {
-    throw new Error(`Compiled schema not found at ${schemaPath}. Run "pnpm --filter @wasel/api build" first.`);
+    console.log('[check-drift] Pre-compiling @wasel/api schema artifacts...');
+    const rootDir = path.resolve(__dirname, '..');
+    execSync('pnpm --filter @wasel/api build', { cwd: rootDir, stdio: 'inherit' });
   }
 
   // eslint-disable-next-line @typescript-eslint/no-var-requires

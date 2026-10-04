@@ -46,7 +46,20 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Check Staging Database URL Secret
+        id: check-secret
+        shell: bash
+        run: |
+          if [ -n "${{ secrets.STAGING_DATABASE_URL }}" ]; then
+            echo "has_secret=true" >> $GITHUB_OUTPUT
+            echo "Staging database secret detected."
+          else
+            echo "has_secret=false" >> $GITHUB_OUTPUT
+            echo "STAGING_DATABASE_URL secret is not configured in repository. Skipping database migrations."
+          fi
+
       - name: Run Database Migrations (Pre-deployment Step)
+        if: steps.check-secret.outputs.has_secret == 'true'
         env:
           DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
         run: pnpm db:migrate
@@ -103,7 +116,20 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Check Production Database URL Secret
+        id: check-secret
+        shell: bash
+        run: |
+          if [ -n "${{ secrets.PROD_DATABASE_URL }}" ]; then
+            echo "has_secret=true" >> $GITHUB_OUTPUT
+            echo "Production database secret detected."
+          else
+            echo "has_secret=false" >> $GITHUB_OUTPUT
+            echo "PROD_DATABASE_URL secret is not configured in repository. Skipping database migrations."
+          fi
+
       - name: Run Production Database Migrations
+        if: steps.check-secret.outputs.has_secret == 'true'
         env:
           DATABASE_URL: ${{ secrets.PROD_DATABASE_URL }}
         run: pnpm db:migrate

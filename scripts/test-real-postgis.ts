@@ -69,9 +69,12 @@ async function runRealPostgisTest(): Promise<void> {
       process.exit(1);
     }
 
-    // 2. Apply all 10 unmodified migrations
-    console.log('--- Applying 10 Unmodified SQL Migrations ---');
-    const migrationsDir = path.resolve(process.cwd(), 'supabase/migrations');
+    // 2. Apply all unmodified migrations
+    console.log('--- Applying Unmodified SQL Migrations ---');
+    const rootDir = fs.existsSync(path.resolve(process.cwd(), 'supabase/migrations'))
+      ? process.cwd()
+      : path.resolve(__dirname, '..');
+    const migrationsDir = path.resolve(rootDir, 'supabase/migrations');
     const migrationFiles = fs
       .readdirSync(migrationsDir)
       .filter((f) => f.endsWith('.sql') && !f.includes('.down.'))
@@ -83,27 +86,27 @@ async function runRealPostgisTest(): Promise<void> {
       console.log(`  Applying ${file}...`);
       await sql.unsafe(content);
     }
-    console.log('✅ All 10 migrations applied successfully without modification.\n');
+    console.log(`✅ All ${migrationFiles.length} migrations applied successfully without modification.\n`);
 
     // 3. Apply reference & dev seeds
     console.log('--- Applying Production & Development Seeds ---');
-    const prodSeedPath = path.resolve(process.cwd(), 'supabase/seed.sql');
+    const prodSeedPath = path.resolve(rootDir, 'supabase/seed.sql');
     if (fs.existsSync(prodSeedPath)) {
       const prodSeedContent = fs.readFileSync(prodSeedPath, 'utf-8');
       await sql.unsafe(prodSeedContent);
       console.log('  Applied seed.sql (reference pricing, vehicle types, value tiers).');
     }
 
-    const devSeedPath = path.resolve(process.cwd(), 'supabase/seed.dev.sql');
+    const devSeedPath = path.resolve(rootDir, 'supabase/seed.dev.sql');
     if (fs.existsSync(devSeedPath)) {
-      const devSeedContent = fs.readFileSync(devSeedPath, 'utf-8');
+      const devSeedContent = fs.readFileSync(devSeedPath, 'utf8');
       await sql.unsafe(devSeedContent);
       console.log('  Applied seed.dev.sql (50 captains around Hadayek al-Ahram).\n');
     }
 
     // 4. Run Complete SQL Test Suite (supabase/tests/data_model.spec.sql)
     console.log('--- Running Complete Data Model Specification Suite ---');
-    const testSqlPath = path.resolve(process.cwd(), 'supabase/tests/data_model.spec.sql');
+    const testSqlPath = path.resolve(rootDir, 'supabase/tests/data_model.spec.sql');
     if (fs.existsSync(testSqlPath)) {
       const testSql = fs.readFileSync(testSqlPath, 'utf-8').replace(/\\set ON_ERROR_STOP on/g, '');
       await sql.unsafe(testSql);

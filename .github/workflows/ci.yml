@@ -126,31 +126,32 @@ jobs:
       - name: Typecheck
         run: pnpm typecheck
 
+      - name: Build Monorepo Artifacts
+        env:
+          VITE_API_URL: http://127.0.0.1:3000
+        run: pnpm build
+
       - name: Verify Schema Drift (Drizzle vs Migrations & Geography Parity)
         run: pnpm db:check-drift
 
       - name: Apply Database Migrations & Seeds on PostGIS Service
         env:
-          DATABASE_URL: postgresql://wasel_user:wasel_secret@localhost:5432/wasel_db
+          DATABASE_URL: postgresql://wasel_user:wasel_secret@127.0.0.1:5432/wasel_db
         run: |
           pnpm db:migrate
-          pnpm db:seed --dev
+          pnpm db:seed:dev
 
       - name: Run Tests (All Workspaces with Strict Env)
         env:
-          DATABASE_URL: postgresql://wasel_user:wasel_secret@localhost:5432/wasel_db
-          REDIS_URL: redis://localhost:6379
+          DATABASE_URL: postgresql://wasel_user:wasel_secret@127.0.0.1:5432/wasel_db
+          REDIS_URL: redis://127.0.0.1:6379
           JWT_ACCESS_SECRET: super_secret_jwt_access_key_min_32_chars_long
           JWT_REFRESH_SECRET: super_secret_jwt_refresh_key_min_32_chars_long
           ENCRYPTION_KEY: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
           OTP_PROVIDER: dev
           METRICS_TOKEN: test_metrics_token_secret_123456
+          VITE_API_URL: http://127.0.0.1:3000
         run: pnpm test
-
-      - name: Build Monorepo Artifacts
-        env:
-          VITE_API_URL: http://localhost:3000
-        run: pnpm build
 
       - name: Install Playwright Browsers
         run: npx playwright install --with-deps chromium
@@ -160,8 +161,8 @@ jobs:
           PORT: 3000
           NODE_ENV: test
           APP_ENV: staging
-          DATABASE_URL: postgresql://wasel_user:wasel_secret@localhost:5432/wasel_db
-          REDIS_URL: redis://localhost:6379
+          DATABASE_URL: postgresql://wasel_user:wasel_secret@127.0.0.1:5432/wasel_db
+          REDIS_URL: redis://127.0.0.1:6379
           JWT_ACCESS_SECRET: super_secret_jwt_access_key_min_32_chars_long
           JWT_REFRESH_SECRET: super_secret_jwt_refresh_key_min_32_chars_long
           ENCRYPTION_KEY: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
@@ -170,7 +171,7 @@ jobs:
         run: |
           node apps/api/dist/main.js &
           for i in $(seq 1 30); do
-            if curl -s http://localhost:3000/health | grep -q "ok"; then
+            if curl -s http://127.0.0.1:3000/health | grep -q "ok"; then
               echo "API server is ready for E2E testing."
               break
             fi
@@ -236,12 +237,15 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Build API Package for Schema Drift Check
+        run: pnpm --filter @wasel/api build
+
       - name: Verify Schema Drift (Drizzle vs Migrations)
         run: pnpm db:check-drift
 
       - name: Real PostGIS Fares, Multi-Stop Visits, State Guards & GiST Index Proof
         env:
-          DATABASE_URL: postgresql://wasel_user:wasel_secret@localhost:5432/wasel_db
+          DATABASE_URL: postgresql://wasel_user:wasel_secret@127.0.0.1:5432/wasel_db
         run: pnpm test:db:real
 
   verify-rls-staging:
