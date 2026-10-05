@@ -96,6 +96,8 @@ export async function runMigrations(options: { status?: boolean; down?: string }
         checksum VARCHAR(64) NOT NULL,
         applied_at TIMESTAMPTZ NOT NULL DEFAULT now()
       );
+      ALTER TABLE app.schema_migrations ENABLE ROW LEVEL SECURITY;
+      REVOKE ALL ON TABLE app.schema_migrations FROM public, anon, authenticated;
     `;
 
     // 2. Fetch applied migrations

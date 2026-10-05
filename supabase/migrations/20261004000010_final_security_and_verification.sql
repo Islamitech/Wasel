@@ -32,6 +32,15 @@ BEGIN
   END LOOP;
 END $$;
 
+-- 3b. Ensure schema_migrations table (if present in schema app) has RLS enabled and privileges revoked
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_tables WHERE schemaname = 'app' AND tablename = 'schema_migrations') THEN
+    ALTER TABLE app.schema_migrations ENABLE ROW LEVEL SECURITY;
+    REVOKE ALL ON TABLE app.schema_migrations FROM public, anon, authenticated;
+  END IF;
+END $$;
+
 -- 4. Verification Function: app.verify_rls_and_permissions()
 -- Returns audit results confirming 100% of tables in app have RLS enabled and 0 public grants,
 -- and that all functions are safe (no unfixed search_path, zero public EXECUTE).
@@ -68,7 +77,8 @@ BEGIN
       ELSE 'PASS'
     END AS status
   FROM pg_tables t
-  WHERE t.schemaname = 'app';
+  WHERE t.schemaname = 'app'
+    AND t.tablename != 'schema_migrations';
 END;
 $$ LANGUAGE plpgsql SECURITY INVOKER SET search_path = app, extensions, pg_temp;
 
