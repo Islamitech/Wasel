@@ -89,7 +89,7 @@ export async function runMigrations(options: { status?: boolean; down?: string }
     await sql`CREATE EXTENSION IF NOT EXISTS "postgis" WITH SCHEMA extensions;`;
     await sql`CREATE EXTENSION IF NOT EXISTS "uuid-ossp" WITH SCHEMA extensions;`;
     await sql`CREATE EXTENSION IF NOT EXISTS "pgcrypto" WITH SCHEMA extensions;`;
-    await sql`
+    await sql.unsafe(`
       CREATE TABLE IF NOT EXISTS app.schema_migrations (
         id SERIAL PRIMARY KEY,
         name VARCHAR(255) NOT NULL UNIQUE,
@@ -98,7 +98,7 @@ export async function runMigrations(options: { status?: boolean; down?: string }
       );
       ALTER TABLE app.schema_migrations ENABLE ROW LEVEL SECURITY;
       REVOKE ALL ON TABLE app.schema_migrations FROM public, anon, authenticated;
-    `;
+    `);
 
     // 2. Fetch applied migrations
     const appliedRows = await sql<{ name: string; checksum: string; applied_at: Date }[]>`
