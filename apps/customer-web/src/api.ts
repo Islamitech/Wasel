@@ -1,6 +1,9 @@
 import { createApiClient } from '@wasel/api-client';
 
-const rawUrl = (import.meta.env.VITE_API_URL || 'http://localhost:3000').replace(/\/+$/, '');
+const defaultApiUrl = import.meta.env.PROD
+  ? 'https://waselapi-production.up.railway.app'
+  : 'http://localhost:3000';
+const rawUrl = (import.meta.env.VITE_API_URL || defaultApiUrl).replace(/\/+$/, '');
 const API_BASE_URL = rawUrl.endsWith('/v1') ? rawUrl.slice(0, -3) : rawUrl;
 
 

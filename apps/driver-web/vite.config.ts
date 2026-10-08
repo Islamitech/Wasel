@@ -11,7 +11,7 @@ function validateApiUrlPlugin() {
         process.env.APP_ENV === 'production' ||
         process.env.VERCEL_ENV === 'production';
 
-      const apiUrl = process.env.VITE_API_URL || (isProduction ? 'https://api.wasel.app' : '');
+      const apiUrl = process.env.VITE_API_URL || (isProduction ? 'https://waselapi-production.up.railway.app' : '');
 
       if (apiUrl && (apiUrl.endsWith('/v1') || apiUrl.endsWith('/v1/'))) {
         throw new Error(
