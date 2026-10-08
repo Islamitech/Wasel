@@ -129,13 +129,17 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
     const prepare = process.env.DB_PREPARE !== 'false';
     const isProduction =
       process.env.APP_ENV === 'production' || process.env.NODE_ENV === 'production';
+    const isInternalNetwork =
+      connectionString.includes('localhost') ||
+      connectionString.includes('127.0.0.1') ||
+      connectionString.includes('.railway.internal') ||
+      connectionString.includes('.internal');
+
     const ssl =
       process.env.DB_SSL === 'require' ||
-      process.env.DB_SSL === 'true' ||
-      (isProduction &&
-        process.env.DB_SSL !== 'false' &&
-        !connectionString.includes('localhost') &&
-        !connectionString.includes('127.0.0.1'))
+      process.env.DB_SSL === 'true'
+        ? 'require'
+        : (isProduction && process.env.DB_SSL !== 'false' && !isInternalNetwork)
         ? 'require'
         : false;
 
