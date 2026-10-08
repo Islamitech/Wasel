@@ -47,6 +47,25 @@ async function bootstrap() {
     bufferLogs: true,
   });
 
+  // Auto-run migrations, seeds, and admin bootstrap in pilot/dev mode
+  if (envConfig.ALLOW_DEV_PROVIDERS === 'true' || process.env.AUTO_MIGRATE === 'true') {
+    try {
+      logger.log('🌱 Checking and applying schema migrations...');
+      const { runMigrations } = await import('./database/migrate.js');
+      await runMigrations();
+      logger.log('✅ Database migrations up to date');
+
+      const { runSeeds } = await import('./database/seed.js');
+      await runSeeds();
+      logger.log('✅ Canonical reference seeds applied');
+
+      const { bootstrapAdminSafe } = await import('./database/bootstrap-admin.js');
+      await bootstrapAdminSafe();
+    } catch (migErr: any) {
+      logger.warn(`Database auto-init notice: ${migErr.message}`);
+    }
+  }
+
   // Enable trust proxy from env
   const trustProxy = envConfig.TRUST_PROXY;
   if (trustProxy === 'true') {

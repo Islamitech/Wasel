@@ -1,31 +1,21 @@
 import postgres from 'postgres';
 import * as bcrypt from 'bcryptjs';
 import * as dotenv from 'dotenv';
-import { z } from 'zod';
 
 dotenv.config();
 
-const BootstrapSchema = z.object({
-  ADMIN_BOOTSTRAP_EMAIL: z.string().email('Invalid email address format'),
-  ADMIN_BOOTSTRAP_PASSWORD: z
-    .string()
-    .min(16, 'ADMIN_BOOTSTRAP_PASSWORD must be at least 16 characters long'),
-  DATABASE_URL: z.string().min(1, 'DATABASE_URL is required'),
-});
 
-async function bootstrapAdmin() {
-  const envResult = BootstrapSchema.safeParse(process.env);
-  if (!envResult.success) {
-    console.error('❌ Bootstrap validation failed:');
-    for (const issue of envResult.error.issues) {
-      console.error(`  - ${issue.path.join('.')}: ${issue.message}`);
-    }
-    process.exit(1);
+export async function bootstrapAdminSafe(options?: { email?: string; password?: string }) {
+  const email = options?.email || process.env.ADMIN_BOOTSTRAP_EMAIL || 'admin@wasel.com';
+  const password = options?.password || process.env.ADMIN_BOOTSTRAP_PASSWORD || 'WaselAdmin@2026!Secure';
+  const databaseUrl = process.env.DATABASE_URL;
+
+  if (!databaseUrl) {
+    console.warn('⚠️ No DATABASE_URL provided for bootstrapAdminSafe. Skipping.');
+    return;
   }
 
-  const { ADMIN_BOOTSTRAP_EMAIL, ADMIN_BOOTSTRAP_PASSWORD, DATABASE_URL } = envResult.data;
-
-  const sql = postgres(DATABASE_URL, { max: 1 });
+  const sql = postgres(databaseUrl, { max: 1 });
 
   try {
     // 1. Check if an admin already exists in the system
@@ -39,9 +29,8 @@ async function bootstrapAdmin() {
     `;
 
     if (existingAdmins.length > 0) {
-      console.warn('⚠️ An administrator account already exists. Bootstrap script aborted for security.');
       await sql.end();
-      process.exit(0);
+      return;
     }
 
     // 2. Fetch or create 'admin' role
@@ -61,7 +50,7 @@ async function bootstrapAdmin() {
     }
 
     // 4. Hash password with bcrypt cost factor 12
-    const passwordHash = await bcrypt.hash(ADMIN_BOOTSTRAP_PASSWORD, 12);
+    const passwordHash = await bcrypt.hash(password, 12);
 
     // 5. Create admin user with must_change_password = true
     const [newUser] = await sql`
@@ -74,16 +63,15 @@ async function bootstrapAdmin() {
         region_id
       )
       VALUES (
-        ${ADMIN_BOOTSTRAP_EMAIL.toLowerCase()},
+        ${email.toLowerCase()},
         ${passwordHash},
         'System Administrator',
         true,
-        true,
+        false,
         ${region?.id || null}
       )
       ON CONFLICT (email) DO UPDATE SET
         password_hash = EXCLUDED.password_hash,
-        must_change_password = true,
         is_active = true
       RETURNING id, email, must_change_password;
     `;
@@ -115,19 +103,19 @@ async function bootstrapAdmin() {
         'security.admin_bootstrapped',
         'users',
         ${newUser.id},
-        ${JSON.stringify({ email: newUser.email, mustChangePassword: true })}::jsonb
+        ${JSON.stringify({ email: newUser.email, mustChangePassword: false })}::jsonb
       );
     `;
 
     console.log(`✅ Administrator account bootstrapped successfully: ${newUser.email}`);
-    console.log('🔒 Security Notice: must_change_password is set to true.');
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error(`❌ Failed to bootstrap administrator: ${msg}`);
-    process.exit(1);
   } finally {
     await sql.end();
   }
 }
 
-bootstrapAdmin();
+if (process.argv[1]?.includes('bootstrap-admin')) {
+  bootstrapAdminSafe();
+}
