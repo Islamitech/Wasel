@@ -120,6 +120,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Install Playwright Browsers
+        run: pnpm --filter @wasel/customer-web exec playwright install --with-deps chromium
+
       - name: Lint (including Boundary Rules & No New Any)
         run: pnpm lint
 
@@ -165,9 +168,6 @@ jobs:
           METRICS_TOKEN: test_metrics_token_secret_123456
           VITE_API_URL: http://127.0.0.1:3000
         run: pnpm test
-
-      - name: Install Playwright Browsers
-        run: npx playwright install --with-deps chromium
 
       - name: Start API Service for E2E
         env:
