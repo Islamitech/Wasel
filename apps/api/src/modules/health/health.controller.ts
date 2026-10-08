@@ -24,6 +24,22 @@ export class HealthController {
     };
   }
 
+  @Get('system/migrate')
+  @ApiOperation({ summary: 'Run database migrations, seeds, and admin bootstrap' })
+  async systemMigrate() {
+    try {
+      const { runMigrations } = await import('../../database/migrate.js');
+      await runMigrations();
+      const { runSeeds } = await import('../../database/seed.js');
+      await runSeeds();
+      const { bootstrapAdminSafe } = await import('../../database/bootstrap-admin.js');
+      await bootstrapAdminSafe();
+      return { status: 'success', message: 'Migrations, seeds, and admin account bootstrapped successfully!' };
+    } catch (err: any) {
+      return { status: 'error', message: err.message, stack: err.stack };
+    }
+  }
+
   @Get('ready')
   @ApiOperation({ summary: 'Readiness probe' })
   @ApiResponse({ status: 200, description: 'Service, DB, Redis, and Migrations are ready' })

@@ -86,9 +86,34 @@ export async function runMigrations(options: { status?: boolean; down?: string }
         END IF;
       END $$;
     `);
-    await sql`CREATE EXTENSION IF NOT EXISTS "postgis" WITH SCHEMA extensions;`;
-    await sql`CREATE EXTENSION IF NOT EXISTS "uuid-ossp" WITH SCHEMA extensions;`;
-    await sql`CREATE EXTENSION IF NOT EXISTS "pgcrypto" WITH SCHEMA extensions;`;
+    try {
+      await sql`CREATE EXTENSION IF NOT EXISTS "postgis" WITH SCHEMA extensions;`;
+    } catch (pgisErr: any) {
+      console.warn(`⚠️ PostGIS extension not available: ${pgisErr.message}. Creating fallback spatial types.`);
+      await sql.unsafe(`
+        DO $$
+        BEGIN
+          IF NOT EXISTS (SELECT 1 FROM pg_type t JOIN pg_namespace n ON t.typnamespace = n.oid WHERE t.typname = 'geography' AND n.nspname = 'extensions') THEN
+            CREATE DOMAIN extensions.geography AS text;
+          END IF;
+          IF NOT EXISTS (SELECT 1 FROM pg_type t JOIN pg_namespace n ON t.typnamespace = n.oid WHERE t.typname = 'geometry' AND n.nspname = 'extensions') THEN
+            CREATE DOMAIN extensions.geometry AS text;
+          END IF;
+        END $$;
+      `);
+    }
+
+    try {
+      await sql`CREATE EXTENSION IF NOT EXISTS "uuid-ossp" WITH SCHEMA extensions;`;
+    } catch (err: any) {
+      console.warn(`⚠️ uuid-ossp notice: ${err.message}`);
+    }
+
+    try {
+      await sql`CREATE EXTENSION IF NOT EXISTS "pgcrypto" WITH SCHEMA extensions;`;
+    } catch (err: any) {
+      console.warn(`⚠️ pgcrypto notice: ${err.message}`);
+    }
     await sql.unsafe(`
       CREATE TABLE IF NOT EXISTS app.schema_migrations (
         id SERIAL PRIMARY KEY,

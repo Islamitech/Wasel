@@ -161,7 +161,7 @@ async function bootstrap() {
 
   // 4. API URI Versioning (/v1)
   app.setGlobalPrefix('v1', {
-    exclude: ['health', 'ready', 'docs', 'docs-json', 'metrics'],
+    exclude: ['health', 'ready', 'docs', 'docs-json', 'metrics', 'system/migrate'],
   });
 
   // 5. OpenAPI Swagger Documentation (/docs) - disabled in production unless ENABLE_DOCS=true
