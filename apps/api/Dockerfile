@@ -41,16 +41,6 @@ COPY --from=builder --chown=wasel:wasel /prod/supabase /app/supabase
 USER wasel
 
 # ------------------------------------------------------------------------------
-# Target: api (NestJS Modular Monolith API)
-# ------------------------------------------------------------------------------
-FROM runner AS api
-EXPOSE 3000
-HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
-  CMD wget --no-verbose --tries=1 --spider http://localhost:3000/health || exit 1
-
-CMD ["node", "dist/main.js"]
-
-# ------------------------------------------------------------------------------
 # Target: worker (BullMQ Background Worker & Event Dispatcher)
 # ------------------------------------------------------------------------------
 FROM runner AS worker
@@ -59,3 +49,13 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
   CMD wget --no-verbose --tries=1 --spider http://localhost:3001/health || exit 1
 
 CMD ["node", "dist/worker.js"]
+
+# ------------------------------------------------------------------------------
+# Target: api (NestJS Modular Monolith API) - DEFAULT FINAL STAGE
+# ------------------------------------------------------------------------------
+FROM runner AS api
+EXPOSE 3000
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+  CMD wget --no-verbose --tries=1 --spider http://localhost:3000/health || exit 1
+
+CMD ["node", "dist/main.js"]
