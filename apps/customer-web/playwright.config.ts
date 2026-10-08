@@ -8,6 +8,12 @@ export default defineConfig({
   retries: 0,
   workers: 1,
   reporter: 'list',
+  updateSnapshots: 'missing',
+  expect: {
+    toHaveScreenshot: {
+      maxDiffPixelRatio: 0.15,
+    },
+  },
   use: {
     baseURL: 'http://localhost:5173',
     trace: 'on-first-retry',
