@@ -346,6 +346,73 @@ export const CustomerAppShell: React.FC<CustomerAppShellProps> = ({ user, onLogo
     };
   }, [state.activeOrderId]);
 
+  // Fallback Polling for live order updates, offers, and agreements every 3.5s
+  useEffect(() => {
+    if (!state.activeOrderId) return;
+    if (
+      state.sheetState !== 'searching' &&
+      state.sheetState !== 'offers' &&
+      state.sheetState !== 'tracking' &&
+      state.sheetState !== 'invoice'
+    ) {
+      return;
+    }
+
+    let isMounted = true;
+
+    const pollOrderStatus = async () => {
+      try {
+        const fullOrder = await apiClient.orders.get(state.activeOrderId!);
+        if (!isMounted) return;
+
+        // 1. If agreement exists or order is agreed/in_progress
+        if (
+          fullOrder.agreement ||
+          fullOrder.status === OrderStatus.AGREED ||
+          fullOrder.status === OrderStatus.IN_PROGRESS
+        ) {
+          if (
+            state.sheetState === 'searching' ||
+            state.sheetState === 'offers' ||
+            !state.activeAgreement
+          ) {
+            dispatch({
+              type: 'RESTORE_ORDER',
+              order: fullOrder,
+              agreement: fullOrder.agreement,
+              invoices: fullOrder.invoices || [],
+            });
+            setStatusAnnouncement('تم الاتفاق مع الكابتن وبدء المشوار');
+          }
+        } else if (
+          fullOrder.status === OrderStatus.OFFERS_RECEIVED &&
+          state.sheetState === 'searching'
+        ) {
+          // 2. If offers received while searching
+          const offers = await apiClient.offers.list(state.activeOrderId!);
+          if (isMounted && offers && offers.length > 0) {
+            dispatch({ type: 'OFFERS_RECEIVED', offers });
+            setStatusAnnouncement('تلقيت عرضاً جديداً من الكابتن');
+          }
+        } else if (fullOrder.status === OrderStatus.COMPLETED && state.sheetState !== 'done') {
+          dispatch({ type: 'AGREEMENT_COMPLETED', agreement: fullOrder.agreement });
+          setStatusAnnouncement('اكتمل المشوار بنجاح');
+        } else if (fullOrder.status === OrderStatus.CANCELLED && state.sheetState !== 'cancelled') {
+          dispatch({ type: 'ORDER_UPDATED', order: fullOrder });
+        }
+      } catch (err) {
+        // Silent catch on network jitter
+      }
+    };
+
+    const pollTimer = setInterval(pollOrderStatus, 3500);
+
+    return () => {
+      isMounted = false;
+      clearInterval(pollTimer);
+    };
+  }, [state.activeOrderId, state.sheetState, state.activeAgreement]);
+
   // Web Push Subscription Helper (prompted ONLY after first published order)
   const triggerWebPushSetup = async () => {
     const alreadyPrompted = localStorage.getItem('wasel_push_prompted');
@@ -743,6 +810,7 @@ export const CustomerAppShell: React.FC<CustomerAppShellProps> = ({ user, onLogo
         <ChatModal
           isOpen={state.isChatOpen}
           onClose={() => dispatch({ type: 'TOGGLE_CHAT', open: false })}
+          agreementId={state.activeAgreement?.id}
           messages={state.messages}
           currentUserId={user.id}
           driverName={state.activeAgreement?.driverName || undefined}

@@ -772,7 +772,28 @@ export class OrdersService {
           status: s.status,
         };
       }),
-      agreement: agreement || null,
+      agreement: agreement
+        ? {
+            ...agreement,
+            driverName: (
+              await this.dbService.db
+                .select({ fullName: users.fullName })
+                .from(users)
+                .where(eq(users.id, agreement.driverId))
+                .limit(1)
+            )[0]?.fullName || 'كابتن واصل',
+            driverPhone: canSeeFullPhone
+              ? (
+                  await this.dbService.db
+                    .select({ phone: users.phone })
+                    .from(users)
+                    .where(eq(users.id, agreement.driverId))
+                    .limit(1)
+                )[0]?.phone || null
+              : null,
+            formattedAgreedFareEgp: `${(agreement.agreedFareMinor / 100).toFixed(0)} ج.م`,
+          }
+        : null,
       invoices: orderInvoices,
       media: mediaWithUrls,
       createdAt: order.createdAt.toISOString(),

@@ -1,44 +1,93 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { MessageResponseDto } from '@wasel/api-client';
+import { apiClient } from '../../api.js';
 import { X, Send } from 'lucide-react';
 
 interface ChatModalProps {
   isOpen: boolean;
   onClose: () => void;
-  messages: MessageResponseDto[];
+  agreementId?: string;
   currentUserId: string;
-  onSendMessage: (text: string) => Promise<void>;
   driverName?: string;
+  messages?: MessageResponseDto[];
+  onSendMessage?: (text: string) => Promise<void>;
 }
 
 export const ChatModal: React.FC<ChatModalProps> = ({
   isOpen,
   onClose,
-  messages,
+  agreementId,
   currentUserId,
-  onSendMessage,
   driverName,
+  messages: initialMessages = [],
+  onSendMessage,
 }) => {
+  const [chatMessages, setChatMessages] = useState<any[]>(initialMessages);
   const [inputText, setInputText] = useState('');
   const [isSending, setIsSending] = useState(false);
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
+  // Sync initialMessages if provided
+  useEffect(() => {
+    if (initialMessages && initialMessages.length > 0) {
+      setChatMessages(initialMessages);
+    }
+  }, [initialMessages]);
+
+  // Real-time polling when open
+  useEffect(() => {
+    if (!isOpen || !agreementId) return;
+
+    let isMounted = true;
+    const fetchMessages = () => {
+      apiClient.messaging
+        .list(agreementId)
+        .then((msgs: any[]) => {
+          if (isMounted && Array.isArray(msgs)) {
+            setChatMessages(msgs);
+          }
+        })
+        .catch(() => {});
+    };
+
+    fetchMessages();
+    const interval = setInterval(fetchMessages, 2500);
+
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
+  }, [isOpen, agreementId]);
+
+  // Auto-scroll to bottom on new messages
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [messages, isOpen]);
+  }, [chatMessages, isOpen]);
 
   if (!isOpen) return null;
 
   const handleSend = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!inputText.trim() || isSending) return;
-    const text = inputText;
+    const text = inputText.trim();
     setInputText('');
     setIsSending(true);
+
     try {
-      await onSendMessage(text);
+      if (onSendMessage) {
+        await onSendMessage(text);
+      } else if (agreementId) {
+        await apiClient.messaging.send(agreementId, { content: text });
+      }
+
+      if (agreementId) {
+        const fresh = await apiClient.messaging.list(agreementId);
+        if (Array.isArray(fresh)) {
+          setChatMessages(fresh);
+        }
+      }
     } catch {
       setInputText(text);
     } finally {
@@ -110,12 +159,12 @@ export const ChatModal: React.FC<ChatModalProps> = ({
             gap: '10px',
           }}
         >
-          {messages.length === 0 ? (
+          {chatMessages.length === 0 ? (
             <div style={{ textAlign: 'center', color: '#9ca3af', marginTop: '40px', fontSize: '0.9rem' }}>
               لا توجد رسائل سابقة. يمكنك إرسال تعليمات إضافية للكابتن هنا.
             </div>
           ) : (
-            messages.map((m) => {
+            chatMessages.map((m: any) => {
               const isMe = m.senderId === currentUserId;
               return (
                 <div
@@ -142,7 +191,9 @@ export const ChatModal: React.FC<ChatModalProps> = ({
                       marginTop: '4px',
                     }}
                   >
-                    {new Date(m.createdAt).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' })}
+                    {m.createdAt
+                      ? new Date(m.createdAt).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' })
+                      : ''}
                   </div>
                 </div>
               );
@@ -183,22 +234,22 @@ export const ChatModal: React.FC<ChatModalProps> = ({
           <button
             type="submit"
             disabled={!inputText.trim() || isSending}
-            aria-label="إرسال الرسالة"
+            aria-label="إرسال"
             style={{
               width: '48px',
               height: '48px',
               borderRadius: 'var(--radius-sm, 14px)',
-              border: 'none',
-              backgroundColor: 'var(--color-ink, #12302b)',
+              backgroundColor: !inputText.trim() || isSending ? '#9ca3af' : 'var(--color-ink, #12302b)',
               color: '#ffffff',
+              border: 'none',
+              cursor: !inputText.trim() || isSending ? 'not-allowed' : 'pointer',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              cursor: !inputText.trim() || isSending ? 'not-allowed' : 'pointer',
-              opacity: !inputText.trim() || isSending ? 0.5 : 1,
+              transition: 'background-color 0.2s',
             }}
           >
-            <Send size={18} />
+            <Send size={20} />
           </button>
         </form>
       </div>
