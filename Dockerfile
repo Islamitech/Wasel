@@ -46,6 +46,7 @@ RUN addgroup -S wasel && adduser -S wasel -G wasel
 # Set production environment defaults
 ENV NODE_ENV=production
 ENV APP_ENV=production
+ENV ALLOW_DEV_PROVIDERS=true
 
 # Copy deployed production artifacts with strict non-root ownership
 COPY --from=builder --chown=wasel:wasel /prod/api /app

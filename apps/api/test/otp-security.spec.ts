@@ -44,4 +44,14 @@ describe('OTP Security & Production Startup Validation', () => {
     });
     expect(prodConfig.OTP_PROVIDER).toBe('sms');
   });
+
+  it('allows OTP_PROVIDER=dev in production when ALLOW_DEV_PROVIDERS=true', () => {
+    const pilotConfig = validateEnv({
+      ...baseValidConfig,
+      NODE_ENV: 'production',
+      OTP_PROVIDER: 'dev',
+      ALLOW_DEV_PROVIDERS: 'true',
+    });
+    expect(pilotConfig.OTP_PROVIDER).toBe('dev');
+  });
 });

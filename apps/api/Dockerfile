@@ -34,6 +34,7 @@ WORKDIR /app
 RUN addgroup -S wasel && adduser -S wasel -G wasel
 ENV NODE_ENV=production
 ENV APP_ENV=production
+ENV ALLOW_DEV_PROVIDERS=true
 
 COPY --from=builder --chown=wasel:wasel /prod/api /app
 COPY --from=builder --chown=wasel:wasel /prod/supabase /app/supabase

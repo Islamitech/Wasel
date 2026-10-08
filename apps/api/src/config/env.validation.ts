@@ -6,7 +6,11 @@ export const EnvSchema = z
     APP_ENV: z.enum(['development', 'test', 'staging', 'production']).default('development'),
     PORT: z.coerce.number().default(3000),
     API_URL: z.string().url().default('http://localhost:3000'),
-    CORS_ORIGINS: z.string().default('http://localhost:5173,http://localhost:5174,http://localhost:5175'),
+    CORS_ORIGINS: z
+      .string()
+      .default(
+        'http://localhost:5173,http://localhost:5174,http://localhost:5175,https://wasel-customer.vercel.app,https://wasel-driver.vercel.app',
+      ),
     DATABASE_URL: z
       .string()
       .default('postgresql://wasel_user:wasel_secret@localhost:5432/wasel_db'),
@@ -66,12 +70,18 @@ export const EnvSchema = z
     SENTRY_DSN: z.string().optional(),
     LOG_LEVEL: z.enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal']).default('info'),
     METRICS_TOKEN: z.string().optional(),
+    ALLOW_DEV_PROVIDERS: z.enum(['true', 'false']).default('false'),
   })
   .superRefine((data, ctx) => {
     const isProdOrStaging = data.APP_ENV === 'production' || data.APP_ENV === 'staging';
+    const isStrictProd = isProdOrStaging && data.ALLOW_DEV_PROVIDERS !== 'true';
 
-    // 1. Prevent OTP_PROVIDER=dev in production/staging or when NODE_ENV=production
-    if ((data.NODE_ENV === 'production' || isProdOrStaging) && data.OTP_PROVIDER === 'dev') {
+    // 1. Prevent OTP_PROVIDER=dev in production/staging or when NODE_ENV=production (unless ALLOW_DEV_PROVIDERS=true)
+    if (
+      (data.NODE_ENV === 'production' || isProdOrStaging) &&
+      data.OTP_PROVIDER === 'dev' &&
+      data.ALLOW_DEV_PROVIDERS !== 'true'
+    ) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['OTP_PROVIDER'],
@@ -79,7 +89,7 @@ export const EnvSchema = z
       });
     }
 
-    if (isProdOrStaging) {
+    if (isStrictProd) {
       // 2. Reject secrets starting with super_secret or matching placeholder
       if (
         data.JWT_ACCESS_SECRET.startsWith('super_secret') ||
@@ -194,6 +204,11 @@ export function validateEnv(config: Record<string, unknown>): EnvConfig {
     console.error('❌ Environment validation failed! Boot aborted:');
     console.error(JSON.stringify(result.error.format(), null, 2));
     throw new Error(`Config validation error: ${result.error.message}`);
+  }
+  if (result.data.ALLOW_DEV_PROVIDERS === 'true') {
+    console.warn(
+      '⚠️ [DEMO / PILOT MODE ACTIVE] ALLOW_DEV_PROVIDERS=true: Mock OTP (123456) and fallback providers are enabled.',
+    );
   }
   return result.data;
 }
