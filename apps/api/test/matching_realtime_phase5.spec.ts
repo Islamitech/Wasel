@@ -212,6 +212,8 @@ describe('المرحلة 5: تفعيل ما هو موصوف ولا يعمل (Pha
           if (chunk.includes('secret_data_for_user_a')) userAReceived = true;
           return true;
         },
+        setHeader: () => {},
+        flushHeaders: () => {},
       } as unknown as Response;
 
       const mockResB = {
@@ -219,6 +221,8 @@ describe('المرحلة 5: تفعيل ما هو موصوف ولا يعمل (Pha
           if (chunk.includes('secret_data_for_user_a')) userBReceived = true;
           return true;
         },
+        setHeader: () => {},
+        flushHeaders: () => {},
       } as unknown as Response;
 
       await realtimeService.addClient('test-client-a', userA, mockResA);

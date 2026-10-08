@@ -143,9 +143,9 @@ jobs:
           PGHOST: 127.0.0.1
         run: |
           sleep 2
-          psql -d wasel_db -c "CREATE ROLE anon NOLOGIN;" 2>/dev/null || true
-          psql -d wasel_db -c "CREATE ROLE authenticated NOLOGIN;" 2>/dev/null || true
-          psql -d wasel_db -c "GRANT USAGE ON SCHEMA public TO anon, authenticated;" 2>/dev/null || true
+          psql -h 127.0.0.1 -U wasel_user -d wasel_db -c "CREATE ROLE anon NOLOGIN;" 2>/dev/null || true
+          psql -h 127.0.0.1 -U wasel_user -d wasel_db -c "CREATE ROLE authenticated NOLOGIN;" 2>/dev/null || true
+          psql -h 127.0.0.1 -U wasel_user -d wasel_db -c "GRANT USAGE ON SCHEMA public TO anon, authenticated;" 2>/dev/null || true
 
       - name: Apply Database Migrations & Seeds on PostGIS Service
         env:
@@ -173,7 +173,7 @@ jobs:
         env:
           PORT: 3000
           NODE_ENV: test
-          APP_ENV: staging
+          APP_ENV: test
           DATABASE_URL: postgresql://wasel_user:wasel_secret@127.0.0.1:5432/wasel_db
           REDIS_URL: redis://127.0.0.1:6379
           JWT_ACCESS_SECRET: super_secret_jwt_access_key_min_32_chars_long
@@ -265,9 +265,9 @@ jobs:
           PGHOST: 127.0.0.1
         run: |
           sleep 2
-          psql -d wasel_db -c "CREATE ROLE anon NOLOGIN;" 2>/dev/null || true
-          psql -d wasel_db -c "CREATE ROLE authenticated NOLOGIN;" 2>/dev/null || true
-          psql -d wasel_db -c "GRANT USAGE ON SCHEMA public TO anon, authenticated;" 2>/dev/null || true
+          psql -h 127.0.0.1 -U wasel_user -d wasel_db -c "CREATE ROLE anon NOLOGIN;" 2>/dev/null || true
+          psql -h 127.0.0.1 -U wasel_user -d wasel_db -c "CREATE ROLE authenticated NOLOGIN;" 2>/dev/null || true
+          psql -h 127.0.0.1 -U wasel_user -d wasel_db -c "GRANT USAGE ON SCHEMA public TO anon, authenticated;" 2>/dev/null || true
 
       - name: Real PostGIS Fares, Multi-Stop Visits, State Guards & GiST Index Proof
         env:
