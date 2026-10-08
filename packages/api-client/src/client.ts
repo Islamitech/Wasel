@@ -569,13 +569,32 @@ export class WaselApiClient {
         body: JSON.stringify(dto),
       }),
 
-    listOrders: (query: { status?: string; limit?: number; offset?: number } = {}) => {
+    listOrders: (query: { status?: string; limit?: number; offset?: number; search?: string } = {}) => {
       const params = new URLSearchParams();
       if (query.status) params.set('status', query.status);
       if (query.limit) params.set('limit', String(query.limit));
       if (query.offset) params.set('offset', String(query.offset));
+      if (query.search) params.set('search', query.search);
       return this.request<any>(`/admin/orders?${params.toString()}`);
     },
+
+    getOrderDetails: (orderId: string) =>
+      this.request<any>(`/admin/orders/${orderId}`),
+
+    cancelOrder: (orderId: string, reason?: string) =>
+      this.request<any>(`/admin/orders/${orderId}/cancel`, {
+        method: 'POST',
+        body: JSON.stringify({ reason }),
+      }),
+
+    createTestOrder: (dto: { description?: string } = {}) =>
+      this.request<any>('/admin/orders/test', {
+        method: 'POST',
+        body: JSON.stringify(dto),
+      }),
+
+    getFleetLive: () =>
+      this.request<any>('/admin/fleet/live'),
 
     listDrivers: (status?: string) =>
       this.request<any[]>(`/admin/drivers${status ? `?status=${status}` : ''}`),

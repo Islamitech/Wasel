@@ -278,5 +278,95 @@ export class AdminController {
   ) {
     return this.adminService.registerOfficialUser(adminId, body.phone, body.fullName, body.role);
   }
+
+  // --- Orders Management ---
+
+  @Get('orders')
+  @ApiOperation({ summary: 'List orders with admin filters' })
+  async listOrders(
+    @Query('status') status?: string,
+    @Query('limit') limit?: string,
+    @Query('offset') offset?: string,
+    @Query('search') search?: string,
+  ) {
+    return this.adminService.listOrders({
+      status,
+      limit: limit ? parseInt(limit, 10) : 25,
+      offset: offset ? parseInt(offset, 10) : 0,
+      search,
+    });
+  }
+
+  @Get('orders/:id')
+  @ApiOperation({ summary: 'Get complete order details with stops and agreement' })
+  async getOrderDetails(@Param('id') orderId: string) {
+    return this.adminService.getOrderDetails(orderId);
+  }
+
+  @Post('orders/:id/cancel')
+  @ApiOperation({ summary: 'Admin force cancellation of order' })
+  async cancelOrder(
+    @Param('id') orderId: string,
+    @CurrentUser('userId') adminId: string,
+    @Body() body: { reason?: string },
+  ) {
+    return this.adminService.cancelOrderAdmin(orderId, adminId, body?.reason);
+  }
+
+  @Post('orders/test')
+  @ApiOperation({ summary: 'Create a simulated test order in Hadayek al-Ahram' })
+  async createTestOrder(
+    @CurrentUser('userId') adminId: string,
+    @Body() body: { description?: string },
+  ) {
+    return this.adminService.createTestOrderAdmin(adminId, body);
+  }
+
+  // --- Subscriptions ---
+
+  @Get('subscriptions')
+  @ApiOperation({ summary: 'List driver subscriptions with status and expiry' })
+  async listSubscriptions(
+    @Query('status') status?: string,
+    @Query('limit') limit?: string,
+    @Query('offset') offset?: string,
+  ) {
+    return this.adminService.listSubscriptions({
+      status,
+      limit: limit ? parseInt(limit, 10) : 50,
+      offset: offset ? parseInt(offset, 10) : 0,
+    });
+  }
+
+  // --- Live Fleet Telemetry ---
+
+  @Get('fleet/live')
+  @ApiOperation({ summary: 'Real-time fleet coordinates and status for dispatch radar' })
+  async getFleetLive() {
+    return this.adminService.getFleetLiveLocations();
+  }
+
+  // --- Dynamic Rules Updaters ---
+
+  @Put('vehicle-types/:id')
+  @ApiOperation({ summary: 'Update vehicle type specifications and active status' })
+  async updateVehicleType(
+    @Param('id') id: string,
+    @CurrentUser('userId') adminId: string,
+    @Body() body: any,
+  ) {
+    return this.adminService.updateVehicleType(id, adminId, body);
+  }
+
+  @Put('escalation-rules/:id')
+  @ApiOperation({ summary: 'Update escalation rule parameters' })
+  async updateEscalationRule(
+    @Param('id') id: string,
+    @CurrentUser('userId') adminId: string,
+    @Body() body: any,
+  ) {
+    return this.adminService.updateEscalationRule(id, adminId, body);
+  }
 }
+
 

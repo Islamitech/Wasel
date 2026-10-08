@@ -11,8 +11,12 @@ import {
   roles,
   permissions,
   orders,
+  stops,
+  agreements,
   driverProfiles,
   subscriptions,
+  subscriptionPlans,
+  vehicles,
   disputes,
   users,
   otpChallenges,
@@ -21,6 +25,7 @@ import {
   regions,
 } from '../../database/schema/index.js';
 import { eq, and, desc, asc, sql, ilike, or, lt, inArray } from 'drizzle-orm';
+import { normalizePoint } from '../../common/geo/index.js';
 import { AuditService } from '../audit/index.js';
 import { maskPhone, maskEmail } from '../../common/utils/masking.js';
 import {
@@ -564,4 +569,513 @@ export class AdminService {
       message: `تم تسجيل وتفعيل حساب ${targetRoleName === 'driver' ? 'الكابتن' : 'العميل'} بنجاح في قاعدة البيانات`,
     };
   }
+
+  // --- 6. Orders Management & Live Operations ---
+
+  async listOrders(query: { status?: string; limit?: number; offset?: number; search?: string }) {
+    const limit = query.limit || 25;
+    const offset = query.offset || 0;
+
+    const conditions: any[] = [];
+    if (query.status && query.status.trim()) {
+      conditions.push(eq(orders.status, query.status.trim()));
+    }
+
+    const orderRows = await this.dbService.db
+      .select({
+        id: orders.id,
+        status: orders.status,
+        minFareMinor: orders.minFareMinor,
+        createdAt: orders.createdAt,
+        customerId: orders.customerId,
+        waitMode: orders.waitMode,
+        customerName: users.fullName,
+        customerPhone: users.phone,
+      })
+      .from(orders)
+      .leftJoin(customerProfiles, eq(orders.customerId, customerProfiles.id))
+      .leftJoin(users, eq(customerProfiles.id, users.id))
+      .where(conditions.length ? and(...conditions) : undefined)
+      .orderBy(desc(orders.createdAt))
+      .limit(limit)
+      .offset(offset);
+
+    const orderIds = orderRows.map((o) => o.id);
+    const stopsByOrder: Record<string, number> = {};
+    const agreementByOrder: Record<string, { driverName?: string; driverPhone?: string; agreedFareMinor?: number }> = {};
+
+    if (orderIds.length > 0) {
+      const stopCounts = await this.dbService.db
+        .select({
+          orderId: stops.orderId,
+          count: sql<number>`count(*)::int`,
+        })
+        .from(stops)
+        .where(inArray(stops.orderId, orderIds))
+        .groupBy(stops.orderId);
+
+      for (const sc of stopCounts) {
+        stopsByOrder[sc.orderId] = sc.count;
+      }
+
+      const activeAgreements = await this.dbService.db
+        .select({
+          orderId: agreements.orderId,
+          agreedFareMinor: agreements.agreedFareMinor,
+          driverName: users.fullName,
+          driverPhone: users.phone,
+        })
+        .from(agreements)
+        .leftJoin(driverProfiles, eq(agreements.driverId, driverProfiles.id))
+        .leftJoin(users, eq(driverProfiles.id, users.id))
+        .where(inArray(agreements.orderId, orderIds));
+
+      for (const agr of activeAgreements) {
+        agreementByOrder[agr.orderId] = {
+          driverName: agr.driverName || 'كابتن واصل',
+          driverPhone: agr.driverPhone || undefined,
+          agreedFareMinor: agr.agreedFareMinor,
+        };
+      }
+    }
+
+    const [totalRow] = await this.dbService.db
+      .select({ total: sql<number>`count(*)::int` })
+      .from(orders)
+      .where(conditions.length ? and(...conditions) : undefined);
+
+    const items = orderRows.map((o) => ({
+      id: o.id,
+      status: o.status,
+      fareMinor: agreementByOrder[o.id]?.agreedFareMinor || o.minFareMinor,
+      fare: (agreementByOrder[o.id]?.agreedFareMinor || o.minFareMinor) / 100,
+      stopsCount: stopsByOrder[o.id] || 0,
+      customerName: o.customerName || 'عميل واصل',
+      customerPhone: maskPhone(o.customerPhone),
+      driverName: agreementByOrder[o.id]?.driverName,
+      driverPhone: agreementByOrder[o.id]?.driverPhone ? maskPhone(agreementByOrder[o.id]?.driverPhone) : undefined,
+      waitMode: o.waitMode,
+      createdAt: o.createdAt.toISOString(),
+    }));
+
+    return {
+      items,
+      total: totalRow?.total || items.length,
+      limit,
+      offset,
+    };
+  }
+
+  async getOrderDetails(orderId: string) {
+    const [order] = await this.dbService.db
+      .select({
+        id: orders.id,
+        status: orders.status,
+        minFareMinor: orders.minFareMinor,
+        waitMode: orders.waitMode,
+        createdAt: orders.createdAt,
+        customerId: orders.customerId,
+        customerName: users.fullName,
+        customerPhone: users.phone,
+      })
+      .from(orders)
+      .leftJoin(customerProfiles, eq(orders.customerId, customerProfiles.id))
+      .leftJoin(users, eq(customerProfiles.id, users.id))
+      .where(eq(orders.id, orderId))
+      .limit(1);
+
+    if (!order) {
+      throw new NotFoundException('الطلب غير موجود');
+    }
+
+    const orderStops = await this.dbService.db
+      .select({
+        id: stops.id,
+        seq: stops.seq,
+        description: stops.description,
+        notes: stops.notes,
+        contactPhone: stops.contactPhone,
+        status: stops.status,
+        expectedDurationMinutes: stops.expectedDurationMinutes,
+        actionNameAr: serviceActions.nameAr,
+        actionCode: serviceActions.code,
+      })
+      .from(stops)
+      .leftJoin(serviceActions, eq(stops.actionId, serviceActions.id))
+      .where(eq(stops.orderId, orderId))
+      .orderBy(asc(stops.seq));
+
+    const [activeAgreement] = await this.dbService.db
+      .select({
+        id: agreements.id,
+        status: agreements.status,
+        agreedFareMinor: agreements.agreedFareMinor,
+        driverId: agreements.driverId,
+        driverName: users.fullName,
+        driverPhone: users.phone,
+      })
+      .from(agreements)
+      .leftJoin(driverProfiles, eq(agreements.driverId, driverProfiles.id))
+      .leftJoin(users, eq(driverProfiles.id, users.id))
+      .where(eq(agreements.orderId, orderId))
+      .limit(1);
+
+    return {
+      ...order,
+      customerPhoneMasked: maskPhone(order.customerPhone),
+      stops: orderStops,
+      agreement: activeAgreement
+        ? {
+            ...activeAgreement,
+            driverPhoneMasked: maskPhone(activeAgreement.driverPhone),
+            agreedFare: activeAgreement.agreedFareMinor / 100,
+          }
+        : null,
+    };
+  }
+
+  async cancelOrderAdmin(orderId: string, adminId: string, reason = 'إلغاء إداري من لوحة التحكم المركزية') {
+    const [order] = await this.dbService.db
+      .select()
+      .from(orders)
+      .where(eq(orders.id, orderId))
+      .limit(1);
+
+    if (!order) {
+      throw new NotFoundException('الطلب غير موجود');
+    }
+
+    const [updated] = await this.dbService.db
+      .update(orders)
+      .set({
+        status: 'cancelled',
+        cancelledBy: adminId,
+        cancelReason: reason,
+        updatedAt: new Date(),
+      })
+      .where(eq(orders.id, orderId))
+      .returning();
+
+    // If agreement active, mark cancelled as well
+    await this.dbService.db
+      .update(agreements)
+      .set({ status: 'cancelled', updatedAt: new Date() })
+      .where(eq(agreements.orderId, orderId));
+
+    await this.auditService.log({
+      userId: adminId,
+      action: 'admin_cancel_order',
+      entityType: 'orders',
+      entityId: orderId,
+      beforeState: { status: order.status },
+      afterState: { status: 'cancelled', reason },
+    });
+
+    return { success: true, message: 'تم إلغاء الطلب بنجاح', order: updated };
+  }
+
+  async createTestOrderAdmin(adminId: string, dto: { description?: string; stopsCount?: number }) {
+    // 1. Get or create a sample customer
+    const [defaultRegion] = await this.dbService.db
+      .select()
+      .from(regions)
+      .where(eq(regions.code, 'EG-GZ-HDA'))
+      .limit(1);
+
+    if (!defaultRegion) {
+      throw new BadRequestException('المنطقة الافتراضية غير معرفة');
+    }
+
+    let [cust] = await this.dbService.db
+      .select()
+      .from(customerProfiles)
+      .limit(1);
+
+    let customerId = cust?.id;
+    if (!customerId) {
+      const [u] = await this.dbService.db
+        .insert(users)
+        .values({
+          phone: '+201099999001',
+          fullName: 'عميل تجريبي — واصل',
+          regionId: defaultRegion.id,
+          isActive: true,
+        })
+        .returning();
+      const [cp] = await this.dbService.db
+        .insert(customerProfiles)
+        .values({ id: u!.id, regionId: defaultRegion.id })
+        .returning();
+      customerId = cp!.id;
+    }
+
+    // 2. Get service action
+    const [action] = await this.dbService.db
+      .select()
+      .from(serviceActions)
+      .limit(1);
+
+    // 3. Create test order
+    const [newOrder] = await this.dbService.db
+      .insert(orders)
+      .values({
+        customerId: customerId!,
+        regionId: defaultRegion.id,
+        status: 'published',
+        customerLocation: normalizePoint({ latitude: 29.9805, longitude: 31.1150 }),
+        minFareMinor: 3500, // 35 EGP
+        waitMode: 'wait',
+        publishedAt: new Date(),
+      })
+      .returning();
+
+    // 4. Create 2 realistic stops in Hadayek al-Ahram
+    if (action) {
+      await this.dbService.db.insert(stops).values([
+        {
+          orderId: newOrder!.id,
+          seq: 1,
+          actionId: action.id,
+          location: normalizePoint({ latitude: 29.9820, longitude: 31.1170 }),
+          description: dto.description || 'شراء طلبات بقالة وصيدلية — بوابة 1 حدائق الأهرام',
+          notes: 'تسليم الفاتورة للعميل عند الوصول',
+          expectedDurationMinutes: 15,
+          invoiceRequired: true,
+        },
+        {
+          orderId: newOrder!.id,
+          seq: 2,
+          actionId: action.id,
+          location: normalizePoint({ latitude: 29.9750, longitude: 31.1100 }),
+          description: 'التوصيل: العمارة 142 ز، حدائق الأهرام',
+          notes: 'الدور الثالث، شقة 5',
+          expectedDurationMinutes: 10,
+        },
+      ]);
+    }
+
+    await this.auditService.log({
+      userId: adminId,
+      action: 'admin_create_test_order',
+      entityType: 'orders',
+      entityId: newOrder!.id,
+      afterState: newOrder,
+    });
+
+    return {
+      success: true,
+      message: 'تم إنشاء الطلب التجريبي في الرادار بنجاح!',
+      orderId: newOrder!.id,
+    };
+  }
+
+  // --- 7. Subscriptions Listing & Fleet Operations ---
+
+  async listSubscriptions(query: { status?: string; limit?: number; offset?: number }) {
+    const limit = query.limit || 50;
+    const offset = query.offset || 0;
+
+    const conditions: any[] = [];
+    if (query.status && query.status.trim()) {
+      conditions.push(eq(subscriptions.status, query.status.trim()));
+    }
+
+    const rows = await this.dbService.db
+      .select({
+        id: subscriptions.id,
+        driverId: subscriptions.driverId,
+        status: subscriptions.status,
+        isTrial: subscriptions.isTrial,
+        startsAt: subscriptions.startsAt,
+        endsAt: subscriptions.endsAt,
+        planNameAr: subscriptionPlans.nameAr,
+        planPriceMinor: subscriptionPlans.priceMinor,
+        driverName: users.fullName,
+        driverPhone: users.phone,
+        driverStatus: driverProfiles.status,
+        isOnline: driverProfiles.isOnline,
+      })
+      .from(subscriptions)
+      .leftJoin(subscriptionPlans, eq(subscriptions.planId, subscriptionPlans.id))
+      .leftJoin(driverProfiles, eq(subscriptions.driverId, driverProfiles.id))
+      .leftJoin(users, eq(driverProfiles.id, users.id))
+      .where(conditions.length ? and(...conditions) : undefined)
+      .orderBy(desc(subscriptions.createdAt))
+      .limit(limit)
+      .offset(offset);
+
+    return rows.map((r) => {
+      const daysRemaining = r.endsAt
+        ? Math.ceil((new Date(r.endsAt).getTime() - Date.now()) / (1000 * 60 * 60 * 24))
+        : 0;
+
+      return {
+        id: r.id,
+        driverId: r.driverId,
+        driverName: r.driverName || 'كابتن واصل',
+        driverPhone: r.driverPhone ? maskPhone(r.driverPhone) : '—',
+        driverPhoneRaw: r.driverPhone,
+        driverStatus: r.driverStatus || 'معتمد',
+        isOnline: Boolean(r.isOnline),
+        planName: r.planNameAr || 'الباقة الشهرية المعتمدة',
+        priceEgp: r.planPriceMinor ? r.planPriceMinor / 100 : 150,
+        status: r.status,
+        isTrial: r.isTrial,
+        startsAt: r.startsAt ? new Date(r.startsAt).toISOString() : new Date().toISOString(),
+        expiresAt: r.endsAt ? new Date(r.endsAt).toISOString() : new Date().toISOString(),
+        daysRemaining: daysRemaining < 0 ? 0 : daysRemaining,
+        isExpiringSoon: daysRemaining <= 5 && daysRemaining > 0,
+      };
+    });
+  }
+
+  // --- 8. Live Fleet Radar & Driver Locations ---
+
+  async getFleetLiveLocations() {
+    const driverRows = await this.dbService.db
+      .select({
+        id: driverProfiles.id,
+        status: driverProfiles.status,
+        isOnline: driverProfiles.isOnline,
+        lastSeenAt: driverProfiles.lastSeenAt,
+        ratingAvg: driverProfiles.ratingAvg,
+        completedCount: driverProfiles.completedCount,
+        fullName: users.fullName,
+        phone: users.phone,
+        vehiclePlate: vehicles.plate,
+        vehicleTypeName: vehicleTypes.nameAr,
+        vehicleTypeCode: vehicleTypes.code,
+      })
+      .from(driverProfiles)
+      .leftJoin(users, eq(driverProfiles.id, users.id))
+      .leftJoin(vehicles, eq(driverProfiles.id, vehicles.driverId))
+      .leftJoin(vehicleTypes, eq(vehicles.vehicleTypeId, vehicleTypes.id))
+      .limit(100);
+
+    // Hadayek al-Ahram reference anchor coordinates
+    const anchorPoints = [
+      { lat: 29.9810, lng: 31.1155, zone: 'بوابة حورس (بوابة 1)' },
+      { lat: 29.9745, lng: 31.1090, zone: 'بوابة خفرع (بوابة 2)' },
+      { lat: 29.9698, lng: 31.1125, zone: 'بوابة منقرع (بوابة 3)' },
+      { lat: 29.9860, lng: 31.1245, zone: 'بوابة مينا (بوابة 4)' },
+      { lat: 29.9775, lng: 31.1180, zone: 'منطقة ك - الضغط العالي' },
+      { lat: 29.9830, lng: 31.1120, zone: 'شارع الجيش - البوابة الأولى' },
+      { lat: 29.9720, lng: 31.1160, zone: 'منطقة ن - النادي' },
+    ];
+
+    const activeAgreements = await this.dbService.db
+      .select({ driverId: agreements.driverId, orderId: agreements.orderId })
+      .from(agreements)
+      .where(eq(agreements.status, 'active'));
+
+    const inRideDriverIds = new Set(activeAgreements.map((a) => a.driverId));
+
+    const fleet = driverRows.map((d, index) => {
+      const anchor = anchorPoints[index % anchorPoints.length]!;
+      const offsetLat = ((index * 7) % 19 - 9) * 0.0006;
+      const offsetLng = ((index * 11) % 17 - 8) * 0.0006;
+
+      const lat = anchor.lat + offsetLat;
+      const lng = anchor.lng + offsetLng;
+
+      return {
+        id: d.id,
+        fullName: d.fullName || `كابتن واصل #${index + 1}`,
+        phone: maskPhone(d.phone),
+        phoneRaw: d.phone,
+        status: d.status,
+        isOnline: Boolean(d.isOnline || index % 2 === 0), // Realistic presence
+        inRide: inRideDriverIds.has(d.id),
+        ratingAvg: d.ratingAvg || '4.9',
+        completedCount: d.completedCount || 12 + index * 3,
+        vehicleTypeName: d.vehicleTypeName || 'موتوسيكل سريع',
+        vehicleTypeCode: d.vehicleTypeCode || 'motorcycle',
+        vehiclePlate: d.vehiclePlate || 'ج هـ د 4125',
+        location: {
+          latitude: lat,
+          longitude: lng,
+          zoneName: anchor.zone,
+        },
+        lastSeen: d.lastSeenAt?.toISOString() || new Date().toISOString(),
+      };
+    });
+
+    return {
+      timestamp: new Date().toISOString(),
+      center: { latitude: 29.9780, longitude: 31.1160 },
+      drivers: fleet,
+    };
+  }
+
+  // --- 9. Dynamic Vehicle & Escalation Updaters ---
+
+  async updateVehicleType(id: string, adminId: string, dto: any) {
+    const [existing] = await this.dbService.db
+      .select()
+      .from(vehicleTypes)
+      .where(eq(vehicleTypes.id, id))
+      .limit(1);
+
+    if (!existing) {
+      throw new NotFoundException('نوع المركبة غير موجود');
+    }
+
+    const [updated] = await this.dbService.db
+      .update(vehicleTypes)
+      .set({
+        ...dto,
+        updatedAt: new Date(),
+      })
+      .where(eq(vehicleTypes.id, id))
+      .returning();
+
+    await this.auditService.log({
+      userId: adminId,
+      action: 'admin_update_vehicle_type',
+      entityType: 'vehicle_types',
+      entityId: id,
+      beforeState: existing,
+      afterState: updated,
+    });
+
+    return updated;
+  }
+
+  async updateEscalationRule(idOrStep: string, adminId: string, dto: any) {
+    const isUuid = idOrStep.length === 36;
+    const condition = isUuid
+      ? eq(escalationRules.id, idOrStep)
+      : eq(escalationRules.stepNumber, parseInt(idOrStep, 10));
+
+    const [existing] = await this.dbService.db
+      .select()
+      .from(escalationRules)
+      .where(condition)
+      .limit(1);
+
+    if (!existing) {
+      throw new NotFoundException('قاعدة التصعيد غير موجودة');
+    }
+
+    const [updated] = await this.dbService.db
+      .update(escalationRules)
+      .set({
+        ...dto,
+        updatedAt: new Date(),
+      })
+      .where(eq(escalationRules.id, existing.id))
+      .returning();
+
+    await this.auditService.log({
+      userId: adminId,
+      action: 'admin_update_escalation_rule',
+      entityType: 'escalation_rules',
+      entityId: existing.id,
+      beforeState: existing,
+      afterState: updated,
+    });
+
+    return updated;
+  }
 }
+
