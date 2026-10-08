@@ -107,6 +107,18 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
 
     const connectionString =
       process.env.DATABASE_URL || 'postgresql://wasel_user:wasel_secret@localhost:5432/wasel_db';
+    
+    // Validate and log sanitized database target
+    try {
+      const parsed = new URL(connectionString);
+      const sanitized = `${parsed.protocol}//${parsed.username ? parsed.username + ':***@' : ''}${parsed.host}${parsed.pathname}`;
+      this.logger.log(`Connecting to database target: ${sanitized}`);
+    } catch (parseErr: any) {
+      this.logger.error(
+        `❌ Invalid DATABASE_URL format: "${connectionString.slice(0, 12)}..." (${parseErr.message}). DATABASE_URL must start with postgresql:// or postgres:// and any special characters in the password must be URL-encoded.`,
+      );
+    }
+
     const maxRetries = isTest ? 1 : 3;
     let lastError: Error | null = null;
 
