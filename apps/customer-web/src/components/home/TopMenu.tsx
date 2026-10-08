@@ -6,9 +6,10 @@ interface TopMenuProps {
   user: UserDto;
   onLogout: () => void;
   visible: boolean;
+  onOpenProfile?: (tab?: 'profile' | 'addresses' | 'history') => void;
 }
 
-export const TopMenu: React.FC<TopMenuProps> = ({ user, onLogout, visible }) => {
+export const TopMenu: React.FC<TopMenuProps> = ({ user, onLogout, visible, onOpenProfile }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [isDark, setIsDark] = useState(() => {
     return document.documentElement.getAttribute('data-theme') === 'dark';
@@ -98,8 +99,12 @@ export const TopMenu: React.FC<TopMenuProps> = ({ user, onLogout, visible }) => 
               </button>
             </div>
 
-            {/* User Info */}
+            {/* User Info (Clickable for Profile) */}
             <div
+              onClick={() => {
+                setIsOpen(false);
+                if (onOpenProfile) onOpenProfile('profile');
+              }}
               style={{
                 padding: '12px',
                 borderRadius: 'var(--radius-sm, 14px)',
@@ -108,6 +113,9 @@ export const TopMenu: React.FC<TopMenuProps> = ({ user, onLogout, visible }) => 
                 display: 'flex',
                 alignItems: 'center',
                 gap: '10px',
+                cursor: 'pointer',
+                border: '1px solid transparent',
+                transition: 'all 0.2s ease',
               }}
             >
               <div
@@ -124,14 +132,66 @@ export const TopMenu: React.FC<TopMenuProps> = ({ user, onLogout, visible }) => 
               >
                 <User size={18} />
               </div>
-              <div style={{ overflow: 'hidden' }}>
+              <div style={{ overflow: 'hidden', flex: 1 }}>
                 <div style={{ fontWeight: 700, fontSize: '0.95rem' }}>{user.fullName || 'العميل'}</div>
-                <div style={{ fontSize: '0.8rem', color: '#6b7280' }}>{user.phone || ''}</div>
+                <div style={{ fontSize: '0.75rem', color: '#6b7280' }}>عرض وتعديل الملف الشخصي ⚙️</div>
               </div>
             </div>
 
             {/* Menu Items */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', flex: 1 }}>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsOpen(false);
+                  if (onOpenProfile) onOpenProfile('profile');
+                }}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '12px',
+                  padding: '12px',
+                  borderRadius: 'var(--radius-sm, 14px)',
+                  border: 'none',
+                  background: 'transparent',
+                  color: 'inherit',
+                  fontFamily: 'inherit',
+                  fontSize: '0.95rem',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  textAlign: 'right',
+                }}
+              >
+                <User size={18} />
+                <span>الملف الشخصي والبيانات</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setIsOpen(false);
+                  if (onOpenProfile) onOpenProfile('history');
+                }}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '12px',
+                  padding: '12px',
+                  borderRadius: 'var(--radius-sm, 14px)',
+                  border: 'none',
+                  background: 'transparent',
+                  color: 'inherit',
+                  fontFamily: 'inherit',
+                  fontSize: '0.95rem',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  textAlign: 'right',
+                }}
+              >
+                <Clock size={18} />
+                <span>سجل المشاوير والفواتير</span>
+              </button>
+
               <button
                 type="button"
                 onClick={toggleTheme}
@@ -153,32 +213,6 @@ export const TopMenu: React.FC<TopMenuProps> = ({ user, onLogout, visible }) => 
               >
                 {isDark ? <Sun size={18} /> : <Moon size={18} />}
                 <span>{isDark ? 'المظهر الفاتح' : 'المظهر الداكن'}</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  alert('لا توجد مشاوير سابقة في الوقت الحالي.');
-                  setIsOpen(false);
-                }}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '12px',
-                  padding: '12px',
-                  borderRadius: 'var(--radius-sm, 14px)',
-                  border: 'none',
-                  background: 'transparent',
-                  color: 'inherit',
-                  fontFamily: 'inherit',
-                  fontSize: '0.95rem',
-                  fontWeight: 600,
-                  cursor: 'pointer',
-                  textAlign: 'right',
-                }}
-              >
-                <Clock size={18} />
-                <span>سجل المشاوير</span>
               </button>
 
               <button

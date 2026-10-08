@@ -1,4 +1,5 @@
 import React, {
+  useState,
   useReducer,
   useEffect,
   useCallback,
@@ -56,6 +57,7 @@ import { DriverDrawerMenu } from '../menu/DriverDrawerMenu.js';
 import { DriverChatModal } from '../chat/DriverChatModal.js';
 import { CancelModal } from '../sheet/CancelModal.js';
 import { OfflineBanner } from '../ui/OfflineBanner.js';
+import { DriverProfileModal } from '../profile/DriverProfileModal.js';
 
 interface DriverHomeShellProps {
   user: any;
@@ -66,6 +68,7 @@ export const DriverHomeShell: React.FC<DriverHomeShellProps> = ({
   user,
   onLogout,
 }) => {
+  const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
   const [state, dispatch] = useReducer(driverReducer, null, () => {
     const persisted = loadActiveJob();
     const hasJob = Boolean(persisted && persisted.activeAgreement);
@@ -988,8 +991,23 @@ export const DriverHomeShell: React.FC<DriverHomeShellProps> = ({
           onClose={() => dispatch({ type: 'TOGGLE_MENU', open: false })}
           onSelectTheme={handleThemeChange}
           onLogout={handleLogout}
+          onOpenProfile={() => setIsProfileModalOpen(true)}
         />
       )}
+
+      {/* Driver Profile Center Modal */}
+      <DriverProfileModal
+        isOpen={isProfileModalOpen}
+        onClose={() => setIsProfileModalOpen(false)}
+        state={state}
+        onSelectTheme={handleThemeChange}
+        onLogout={handleLogout}
+        onUpdateUser={(updated) => {
+          if (state.user) {
+            state.user.fullName = updated.fullName;
+          }
+        }}
+      />
 
       {/* In-App Chat Modal */}
       {state.isChatOpen && state.activeAgreement && (

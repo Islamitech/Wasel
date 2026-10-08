@@ -8,6 +8,7 @@ interface DriverDrawerMenuProps {
   onClose: () => void;
   onSelectTheme: (theme: ThemeMode) => void;
   onLogout: () => void;
+  onOpenProfile?: () => void;
 }
 
 export const DriverDrawerMenu: React.FC<DriverDrawerMenuProps> = ({
@@ -15,6 +16,7 @@ export const DriverDrawerMenu: React.FC<DriverDrawerMenuProps> = ({
   onClose,
   onSelectTheme,
   onLogout,
+  onOpenProfile,
 }) => {
   const { t } = useTranslation();
 
@@ -46,15 +48,22 @@ export const DriverDrawerMenu: React.FC<DriverDrawerMenuProps> = ({
         }}
         onClick={(e) => e.stopPropagation()}
       >
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-          {/* Header */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          {/* Header (Clickable for profile) */}
           <div
+            onClick={() => {
+              if (onOpenProfile) {
+                onClose();
+                onOpenProfile();
+              }
+            }}
             style={{
               display: 'flex',
               justifyContent: 'space-between',
               alignItems: 'center',
               borderBottom: '1px solid var(--color-border, #e5e7eb)',
               paddingBottom: '12px',
+              cursor: 'pointer',
             }}
           >
             <div>
@@ -62,11 +71,14 @@ export const DriverDrawerMenu: React.FC<DriverDrawerMenuProps> = ({
                 {state.user?.fullName || 'كابتن واصل'}
               </h3>
               <span style={{ fontSize: '0.85rem', color: '#6b7280' }}>
-                {state.user?.phone}
+                {state.user?.phone} • تفاصيل الملف ⚙️
               </span>
             </div>
             <button
-              onClick={onClose}
+              onClick={(e) => {
+                e.stopPropagation();
+                onClose();
+              }}
               aria-label="إغلاق القائمة"
               style={{
                 background: 'none',
@@ -79,6 +91,34 @@ export const DriverDrawerMenu: React.FC<DriverDrawerMenuProps> = ({
               ✕
             </button>
           </div>
+
+          {/* Profile & Vehicle Center Button */}
+          {onOpenProfile && (
+            <button
+              type="button"
+              onClick={() => {
+                onClose();
+                onOpenProfile();
+              }}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '8px',
+                padding: '12px',
+                borderRadius: 'var(--radius-sm, 14px)',
+                backgroundColor: 'var(--color-brand, #12302b)',
+                color: '#ffffff',
+                border: 'none',
+                fontSize: '0.95rem',
+                fontWeight: 700,
+                cursor: 'pointer',
+                fontFamily: 'inherit',
+              }}
+            >
+              <span>🚗 الملف الشخصي والمركبة</span>
+            </button>
+          )}
 
           {/* Verification Status Card */}
           <div

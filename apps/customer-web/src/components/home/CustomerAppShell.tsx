@@ -19,6 +19,7 @@ import { InvoiceSheet } from '../sheet/InvoiceSheet.js';
 import { DoneSheet } from '../sheet/DoneSheet.js';
 import { ChatModal } from '../sheet/ChatModal.js';
 import { CancelOrderModal } from '../sheet/CancelOrderModal.js';
+import { CustomerProfileModal } from '../profile/CustomerProfileModal.js';
 import { TopMenu } from './TopMenu.js';
 import { getUiError } from '../../services/errors/errorTaxonomy.js';
 import { loadDraft, saveDraft, clearDraft } from '../../services/storage/draftStorage.js';
@@ -29,7 +30,9 @@ interface CustomerAppShellProps {
   onLogout: () => void;
 }
 
-export const CustomerAppShell: React.FC<CustomerAppShellProps> = ({ user, onLogout }) => {
+export const CustomerAppShell: React.FC<CustomerAppShellProps> = ({ user: initialUser, onLogout }) => {
+  const [currentUser, setCurrentUser] = useState(initialUser);
+  const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [state, dispatch] = useReducer(customerReducer, INITIAL_CUSTOMER_STATE);
   const [driverLocation, setDriverLocation] = useState<Coordinates | null>(null);
   const [isPublishing, setIsPublishing] = useState(false);
@@ -39,6 +42,10 @@ export const CustomerAppShell: React.FC<CustomerAppShellProps> = ({ user, onLogo
   const [statusAnnouncement, setStatusAnnouncement] = useState('');
   const quoteTimeoutRef = useRef<any>(null);
   const isDraftInitializedRef = useRef(false);
+
+  useEffect(() => {
+    setCurrentUser(initialUser);
+  }, [initialUser]);
 
   // 1. Fetch Catalog (Unified)
   const { data: catalogData } = useQuery({
@@ -617,7 +624,12 @@ export const CustomerAppShell: React.FC<CustomerAppShellProps> = ({ user, onLogo
       </div>
 
       {/* Top Menu Icon (Hidden when order is being built) */}
-      <TopMenu user={user} onLogout={onLogout} visible={!isBuildingOrder} />
+      <TopMenu
+        user={currentUser}
+        onLogout={onLogout}
+        visible={!isBuildingOrder}
+        onOpenProfile={() => setIsProfileOpen(true)}
+      />
 
       {/* Map Layer */}
       <Suspense fallback={<div style={{ width: '100%', height: '100%', backgroundColor: '#eaf2ee' }} />}>
@@ -812,7 +824,7 @@ export const CustomerAppShell: React.FC<CustomerAppShellProps> = ({ user, onLogo
           onClose={() => dispatch({ type: 'TOGGLE_CHAT', open: false })}
           agreementId={state.activeAgreement?.id}
           messages={state.messages}
-          currentUserId={user.id}
+          currentUserId={currentUser.id}
           driverName={state.activeAgreement?.driverName || undefined}
           onSendMessage={async (text) => {
             if (!state.activeAgreement?.id) return;
@@ -830,6 +842,15 @@ export const CustomerAppShell: React.FC<CustomerAppShellProps> = ({ user, onLogo
           await handleCancelOrder(reason);
         }}
         isProcessing={isProcessingAction}
+      />
+
+      {/* Customer Profile Center Modal */}
+      <CustomerProfileModal
+        isOpen={isProfileOpen}
+        onClose={() => setIsProfileOpen(false)}
+        user={currentUser}
+        onLogout={onLogout}
+        onUpdateUser={(updated) => setCurrentUser(updated)}
       />
     </main>
   );
