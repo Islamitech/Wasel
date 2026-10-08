@@ -3,6 +3,7 @@
     "collect": {
       "startServerCommand": "pnpm --filter @wasel/driver-web preview --port 4174",
       "startServerReadyPattern": "Local:",
+      "startServerReadyTimeout": 30000,
       "url": [
         "http://localhost:4174/",
         "http://localhost:4174/?state=waiting",
@@ -12,7 +13,7 @@
       ],
       "numberOfRuns": 3,
       "settings": {
-        "preset": "mobile"
+        "chromeFlags": "--no-sandbox --headless --disable-gpu"
       }
     },
     "assert": {
