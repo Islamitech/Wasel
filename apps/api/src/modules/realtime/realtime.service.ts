@@ -41,6 +41,7 @@ interface StreamTicket {
 @Injectable()
 export class RealtimeService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(RealtimeService.name);
+  private readonly nodeId = crypto.randomUUID();
   private clients: Map<string, SseClient> = new Map();
   private redisPub?: Redis;
   private redisSub?: Redis;
@@ -93,6 +94,9 @@ export class RealtimeService implements OnModuleInit, OnModuleDestroy {
       this.redisSub.on('message', (_channel, message) => {
         try {
           const parsed = JSON.parse(message);
+          if (parsed.origin === this.nodeId) {
+            return;
+          }
           this.deliverLocal(parsed.event, parsed.payload, parsed.recipients, parsed.eventId);
         } catch (err) {
           this.logger.error(`Error parsing Redis realtime message: ${err}`);
@@ -406,20 +410,20 @@ export class RealtimeService implements OnModuleInit, OnModuleDestroy {
     // Store in ring buffer for each recipient
     await Promise.all(recipients.map((uid) => this.recordUserEvent(uid, eventRecord)));
 
+    // Deliver locally immediately to connected clients on this node
+    this.deliverLocal(event, payload, recipients, id);
+
     // Fanout across nodes via Redis PubSub if available
     if (this.redisPub?.status === 'ready') {
       try {
         await this.redisPub.publish(
           'wasel:realtime:events',
-          JSON.stringify({ event, payload, recipients, eventId: id }),
+          JSON.stringify({ origin: this.nodeId, event, payload, recipients, eventId: id }),
         );
-        return;
       } catch (err) {
-        this.logger.warn(`Redis pub failed, falling back to local delivery: ${err}`);
+        this.logger.warn(`Redis pub failed: ${err}`);
       }
     }
-
-    this.deliverLocal(event, payload, recipients, id);
   }
 
   /**

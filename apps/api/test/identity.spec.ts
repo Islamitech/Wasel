@@ -168,7 +168,12 @@ describe('Identity Module Integration Tests (End-to-End)', () => {
     });
 
     it('GET /metrics returns 200 with Prometheus metrics', async () => {
-      const res = await request(app.getHttpServer()).get('/metrics');
+      const token = process.env.METRICS_TOKEN || 'test_metrics_token_secret_123456';
+      const req = request(app.getHttpServer()).get('/metrics');
+      if (token) {
+        req.set('Authorization', `Bearer ${token}`);
+      }
+      const res = await req;
       expect(res.status).toBe(200);
       expect(res.text).toContain('wasel_');
     });

@@ -59,12 +59,26 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Build Shared Packages
+        run: pnpm --filter @wasel/shared build
+
+      - name: Setup PostgreSQL Roles & Initial Config
+        env:
+          PGUSER: wasel_user
+          PGPASSWORD: wasel_secret
+          PGHOST: 127.0.0.1
+        run: |
+          sleep 2
+          psql -d wasel_db -c "CREATE ROLE anon NOLOGIN;" 2>/dev/null || true
+          psql -d wasel_db -c "CREATE ROLE authenticated NOLOGIN;" 2>/dev/null || true
+          psql -d wasel_db -c "GRANT USAGE ON SCHEMA public TO anon, authenticated;" 2>/dev/null || true
+
       - name: Apply Database Migrations & Seed Real Dataset
         env:
-          DATABASE_URL: postgresql://wasel_user:wasel_secret@localhost:5432/wasel_db
+          DATABASE_URL: postgresql://wasel_user:wasel_secret@127.0.0.1:5432/wasel_db
         run: |
           pnpm db:migrate
-          pnpm db:seed --dev
+          pnpm db:seed:dev
 
       - name: Build Monorepo Artifacts
         run: pnpm build
@@ -73,9 +87,9 @@ jobs:
         env:
           PORT: 3000
           NODE_ENV: test
-          APP_ENV: staging
-          DATABASE_URL: postgresql://wasel_user:wasel_secret@localhost:5432/wasel_db
-          REDIS_URL: redis://localhost:6379
+          APP_ENV: test
+          DATABASE_URL: postgresql://wasel_user:wasel_secret@127.0.0.1:5432/wasel_db
+          REDIS_URL: redis://127.0.0.1:6379
           JWT_ACCESS_SECRET: super_secret_jwt_access_key_min_32_chars_long
           JWT_REFRESH_SECRET: super_secret_jwt_refresh_key_min_32_chars_long
           ENCRYPTION_KEY: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
@@ -84,7 +98,7 @@ jobs:
         run: |
           node apps/api/dist/main.js &
           for i in $(seq 1 30); do
-            if curl -s http://localhost:3000/health | grep -q "ok"; then
+            if curl -s http://127.0.0.1:3000/health | grep -q "ok"; then
               echo "API is ready for load testing."
               break
             fi

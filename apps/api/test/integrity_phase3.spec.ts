@@ -228,6 +228,7 @@ describe('المرحلة 3: معاملات، Outbox، انتهاءات، و Idem
           payload: { test: true },
           status: 'pending',
           attempts: 0,
+          nextAttemptAt: new Date(Date.now() - 5000),
         })
         .returning();
 

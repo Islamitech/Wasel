@@ -22,13 +22,40 @@ export const options = {
 };
 
 const BASE_URL = __ENV.API_BASE_URL || 'http://localhost:3000/v1';
-const DRIVER_TOKEN = __ENV.DRIVER_TOKEN || 'test_driver_jwt_token_here';
+const DRIVER_TOKEN = __ENV.DRIVER_TOKEN || '';
 
-export default function () {
+export function setup() {
+  if (DRIVER_TOKEN && DRIVER_TOKEN !== 'test_driver_jwt_token_here') {
+    return { token: DRIVER_TOKEN };
+  }
+
+  // Authenticate dynamically using test captain seeded in database
+  const phone = '+200000000001';
+  http.post(`${BASE_URL}/auth/otp/request`, JSON.stringify({ phone, role: 'driver' }), {
+    headers: { 'Content-Type': 'application/json' },
+  });
+
+  const verifyRes = http.post(
+    `${BASE_URL}/auth/otp/verify`,
+    JSON.stringify({ phone, code: '123456', role: 'driver' }),
+    { headers: { 'Content-Type': 'application/json' } }
+  );
+
+  try {
+    const data = JSON.parse(verifyRes.body);
+    const token = data.accessToken || data.token;
+    return { token: token || 'test_driver_jwt_token_here' };
+  } catch {
+    return { token: 'test_driver_jwt_token_here' };
+  }
+}
+
+export default function (data) {
+  const token = data?.token || DRIVER_TOKEN;
   const params = {
     headers: {
       'Content-Type': 'application/json',
-      'Authorization': `Bearer ${DRIVER_TOKEN}`,
+      'Authorization': `Bearer ${token}`,
     },
   };
 
