@@ -143,10 +143,10 @@ export const UsersTab: React.FC = () => {
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', direction: 'rtl' }}>
       {/* Top Header */}
       <div>
-        <h2 style={{ fontSize: '1.35rem', fontWeight: 800, color: 'var(--color-ink)' }}>
+        <h2 style={{ fontSize: '1.45rem', fontWeight: 800, color: '#0f172a' }}>
           إدارة الحسابات ومركز رموز التحقق (OTP Hub)
         </h2>
-        <p style={{ color: 'var(--mut)', fontSize: '0.9rem', marginTop: '4px' }}>
+        <p style={{ color: '#475569', fontSize: '0.95rem', marginTop: '6px', fontWeight: 500 }}>
           تفعيل وتنشيط الحسابات، توليد وإرسال رموز التحقق OTP، وتسجيل العملاء والكباتن رسمياً في قاعدة البيانات.
         </p>
       </div>
@@ -155,23 +155,25 @@ export const UsersTab: React.FC = () => {
       <div
         style={{
           display: 'flex',
-          gap: '8px',
+          gap: '10px',
           borderBottom: '2px solid #e2e8f0',
-          paddingBottom: '8px',
+          paddingBottom: '10px',
         }}
       >
         <button
           type="button"
           onClick={() => setActiveSubTab('users')}
           style={{
-            padding: '10px 18px',
-            borderRadius: '10px',
-            border: 'none',
-            backgroundColor: activeSubTab === 'users' ? 'var(--color-brand, #12302b)' : '#f1f5f9',
-            color: activeSubTab === 'users' ? '#ffffff' : '#334155',
+            padding: '11px 20px',
+            borderRadius: '12px',
+            border: activeSubTab === 'users' ? '1px solid #12302b' : '1px solid #e2e8f0',
+            backgroundColor: activeSubTab === 'users' ? '#12302b' : '#ffffff',
+            color: activeSubTab === 'users' ? '#ffffff' : '#1e293b',
+            boxShadow: activeSubTab === 'users' ? '0 4px 6px -1px rgba(0,0,0,0.1)' : 'none',
             fontWeight: 800,
-            fontSize: '0.92rem',
+            fontSize: '0.95rem',
             cursor: 'pointer',
+            transition: 'all 0.15s ease',
           }}
         >
           👥 حسابات المستخدمين ({usersList.length})
@@ -181,14 +183,16 @@ export const UsersTab: React.FC = () => {
           type="button"
           onClick={() => setActiveSubTab('otp')}
           style={{
-            padding: '10px 18px',
-            borderRadius: '10px',
-            border: 'none',
-            backgroundColor: activeSubTab === 'otp' ? 'var(--color-brand, #12302b)' : '#f1f5f9',
-            color: activeSubTab === 'otp' ? '#ffffff' : '#334155',
+            padding: '11px 20px',
+            borderRadius: '12px',
+            border: activeSubTab === 'otp' ? '1px solid #12302b' : '1px solid #e2e8f0',
+            backgroundColor: activeSubTab === 'otp' ? '#12302b' : '#ffffff',
+            color: activeSubTab === 'otp' ? '#ffffff' : '#1e293b',
+            boxShadow: activeSubTab === 'otp' ? '0 4px 6px -1px rgba(0,0,0,0.1)' : 'none',
             fontWeight: 800,
-            fontSize: '0.92rem',
+            fontSize: '0.95rem',
             cursor: 'pointer',
+            transition: 'all 0.15s ease',
           }}
         >
           🚀 إرسال وتوليد OTP فوري
@@ -198,14 +202,16 @@ export const UsersTab: React.FC = () => {
           type="button"
           onClick={() => setActiveSubTab('register')}
           style={{
-            padding: '10px 18px',
-            borderRadius: '10px',
-            border: 'none',
-            backgroundColor: activeSubTab === 'register' ? 'var(--color-brand, #12302b)' : '#f1f5f9',
-            color: activeSubTab === 'register' ? '#ffffff' : '#334155',
+            padding: '11px 20px',
+            borderRadius: '12px',
+            border: activeSubTab === 'register' ? '1px solid #12302b' : '1px solid #e2e8f0',
+            backgroundColor: activeSubTab === 'register' ? '#12302b' : '#ffffff',
+            color: activeSubTab === 'register' ? '#ffffff' : '#1e293b',
+            boxShadow: activeSubTab === 'register' ? '0 4px 6px -1px rgba(0,0,0,0.1)' : 'none',
             fontWeight: 800,
-            fontSize: '0.92rem',
+            fontSize: '0.95rem',
             cursor: 'pointer',
+            transition: 'all 0.15s ease',
           }}
         >
           📝 تسجيل وتفعيل حساب رسمي

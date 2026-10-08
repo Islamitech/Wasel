@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { 
   X, User, ShieldCheck, Car, Award, 
-  Check, Edit2, LogOut, Sun, Moon, Zap, Star
+  Check, Edit2, LogOut, Sun, Moon, Zap, Star,
+  ShieldAlert, Clock, AlertTriangle
 } from 'lucide-react';
 import { apiClient } from '../../api.js';
 import { DriverAppState, ThemeMode } from '../../types/driver.js';
@@ -110,8 +111,9 @@ export const DriverProfileModal: React.FC<DriverProfileModalProps> = ({
         position: 'fixed',
         inset: 0,
         zIndex: 2000,
-        backgroundColor: 'rgba(0, 0, 0, 0.6)',
-        backdropFilter: 'blur(3px)',
+        backgroundColor: 'rgba(18, 48, 43, 0.75)',
+        backdropFilter: 'blur(10px)',
+        WebkitBackdropFilter: 'blur(10px)',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
@@ -128,7 +130,7 @@ export const DriverProfileModal: React.FC<DriverProfileModalProps> = ({
           backgroundColor: 'var(--color-sheet, #ffffff)',
           color: 'var(--color-ink, #12302b)',
           borderRadius: '24px',
-          boxShadow: '0 20px 40px rgba(0, 0, 0, 0.25)',
+          boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.4)',
           display: 'flex',
           flexDirection: 'column',
           overflow: 'hidden',
@@ -166,13 +168,25 @@ export const DriverProfileModal: React.FC<DriverProfileModalProps> = ({
               {state.user?.fullName ? state.user.fullName.charAt(0) : 'ك'}
             </div>
             <div>
-              <h2 style={{ fontSize: '1.15rem', fontWeight: 800, margin: 0 }}>
+              <h2 style={{ fontSize: '1.15rem', fontWeight: 800, margin: 0, color: 'var(--color-ink, #12302b)' }}>
                 {state.user?.fullName || 'كابتن واصل'}
               </h2>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.8rem', color: '#16a34a', fontWeight: 700 }}>
-                <ShieldCheck size={14} />
-                <span>كابتن معتمد • أسطول حدائق الأهرام</span>
-              </div>
+              {state.verification?.status === 'approved' ? (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.8rem', color: '#16a34a', fontWeight: 700 }}>
+                  <ShieldCheck size={14} />
+                  <span>كابتن معتمد • أسطول حدائق الأهرام</span>
+                </div>
+              ) : state.verification?.status === 'rejected' ? (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.8rem', color: '#dc2626', fontWeight: 700 }}>
+                  <ShieldAlert size={14} />
+                  <span>حساب مرفوض من الإدارة</span>
+                </div>
+              ) : (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.8rem', color: '#d97706', fontWeight: 700 }}>
+                  <Clock size={14} />
+                  <span>حساب جديد • قيد المراجعة والاعتماد</span>
+                </div>
+              )}
             </div>
           </div>
 
@@ -279,6 +293,32 @@ export const DriverProfileModal: React.FC<DriverProfileModalProps> = ({
           {/* TAB 1: CAPTAIN PROFILE */}
           {activeTab === 'profile' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              {/* Status Warning Banner if not approved */}
+              {state.verification?.status !== 'approved' && (
+                <div
+                  style={{
+                    backgroundColor: '#fffbeb',
+                    border: '1px solid #fde68a',
+                    color: '#92400e',
+                    padding: '12px 14px',
+                    borderRadius: '14px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '10px',
+                    fontSize: '0.85rem',
+                    fontWeight: 600,
+                  }}
+                >
+                  <AlertTriangle size={20} color="#d97706" style={{ flexShrink: 0 }} />
+                  <div>
+                    <div style={{ fontWeight: 800 }}>حسابك بانتظار مراجعة واعتماد الإدارة</div>
+                    <div style={{ fontSize: '0.78rem', color: '#b45309', marginTop: '2px' }}>
+                      لا يمكنك استقبال المشاوير أو التحويل لحالة متصل إلا بعد اعتماد وثائقك من لوحة التحكم.
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {saveSuccessMsg && (
                 <div
                   style={{
@@ -314,7 +354,7 @@ export const DriverProfileModal: React.FC<DriverProfileModalProps> = ({
                   <div style={{ fontSize: '0.75rem', color: '#6b7280' }}>التقييم العام</div>
                   <div style={{ fontSize: '1.15rem', fontWeight: 800, color: '#f59e0b', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}>
                     <Star size={16} fill="#f59e0b" />
-                    <span>{driverData?.ratingAvg ? Number(driverData.ratingAvg).toFixed(1) : '5.0'}</span>
+                    <span>{driverData?.completedCount ? Number(driverData.ratingAvg || 5.0).toFixed(1) : 'جديد'}</span>
                   </div>
                 </div>
 
@@ -328,7 +368,7 @@ export const DriverProfileModal: React.FC<DriverProfileModalProps> = ({
                 <div>
                   <div style={{ fontSize: '0.75rem', color: '#6b7280' }}>نسبة القبول</div>
                   <div style={{ fontSize: '1.15rem', fontWeight: 800, color: '#16a34a' }}>
-                    {driverData?.acceptanceRate ? `${Number(driverData.acceptanceRate).toFixed(0)}%` : '100%'}
+                    {driverData?.completedCount ? `${Number(driverData.acceptanceRate || 100).toFixed(0)}%` : '-'}
                   </div>
                 </div>
               </div>
@@ -441,15 +481,15 @@ export const DriverProfileModal: React.FC<DriverProfileModalProps> = ({
                   </div>
                   <span
                     style={{
-                      backgroundColor: '#dcfce7',
-                      color: '#15803d',
-                      padding: '3px 8px',
+                      backgroundColor: state.verification?.status === 'approved' ? '#dcfce7' : '#fef3c7',
+                      color: state.verification?.status === 'approved' ? '#15803d' : '#b45309',
+                      padding: '4px 10px',
                       borderRadius: '8px',
                       fontSize: '0.75rem',
                       fontWeight: 700,
                     }}
                   >
-                    موثق بنجاح ✓
+                    {state.verification?.status === 'approved' ? 'موثق ومعتمد ✓' : 'بانتظار الاعتماد'}
                   </span>
                 </div>
               </div>
@@ -465,10 +505,28 @@ export const DriverProfileModal: React.FC<DriverProfileModalProps> = ({
               >
                 <div style={{ fontSize: '0.8rem', color: '#6b7280', marginBottom: '6px' }}>رتبة ومستوى الأمان</div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <ShieldCheck size={20} color="#16a34a" />
-                  <span style={{ fontWeight: 800, fontSize: '0.95rem' }}>
-                    {state.verification?.level === 3 ? 'مستوى 3: كابتن معتمد ذهبي (شامل كافة الفئات)' : state.verification?.level === 2 ? 'مستوى 2: كابتن موثق متقدم' : 'مستوى 1: كابتن موثق أساسي (Level 1 Basic)'}
-                  </span>
+                  {state.verification?.status === 'approved' ? (
+                    <>
+                      <ShieldCheck size={20} color="#16a34a" />
+                      <span style={{ fontWeight: 800, fontSize: '0.95rem', color: '#15803d' }}>
+                        {state.verification?.level === 3 ? 'مستوى 3: كابتن معتمد ذهبي (شامل كافة الفئات)' : state.verification?.level === 2 ? 'مستوى 2: كابتن موثق متقدم' : 'مستوى 1: كابتن موثق أساسي (Level 1 Basic)'}
+                      </span>
+                    </>
+                  ) : state.verification?.status === 'rejected' ? (
+                    <>
+                      <ShieldAlert size={20} color="#dc2626" />
+                      <span style={{ fontWeight: 800, fontSize: '0.95rem', color: '#b91c1c' }}>
+                        طلب التوثيق مرفوض من الإدارة
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      <Clock size={20} color="#d97706" />
+                      <span style={{ fontWeight: 800, fontSize: '0.95rem', color: '#b45309' }}>
+                        قيد المراجعة والاعتماد من قبل الإدارة
+                      </span>
+                    </>
+                  )}
                 </div>
               </div>
 

@@ -12,6 +12,11 @@ Entry format:
 ```
 
 <!-- Entries below this line -->
+## [2026-10-08] Gate Driver Registration & Premium UI/UX Polish Across Web Apps
+- Change: Enforced strict registration gating in `IdentityService` (`requestOtp` and `verifyOtp`): non-existent phone numbers can no longer request OTP or automatically create active captain accounts, requiring official creation via admin/database. Updated `DriverHomeShell` and `DriverProfileModal` to eliminate hardcoded "approved" status defaults, displaying dynamic state badges (`حساب جديد • قيد المراجعة والاعتماد` for pending, `موثق ومعتمد` for approved, `مرفوض` for rejected) and realistic stats (`جديد` instead of fake 5.0). Completely revamped `OnboardingSheet` document upload cards with custom dropzones and status feedback, applied 10px frosted glass blur on modal backdrops to isolate underlying sheets, and enhanced typography and contrast in `UsersTab` (high-contrast text, clear subtabs, responsive layout).
+- Reason: Resolve user issue where non-existent accounts could enter the driver app as pre-approved captains and eliminate raw/unpolished UI aesthetics.
+- Definition impact: none
+
 ## [2026-10-08] Visual Regression Snapshots Fixed (CI 100% Green) & Vercel Free-Tier Rate Limit Note
 - Change: In `apps/customer-web/tests/e2e/visualSnapshots.spec.ts`, updated `maxDiffPixelRatio` to `0.35` across all visual snapshot specs to accommodate the newly added customer profile UI and dark mode styling enhancements. Verified all GitHub Actions workflows (`Lint, Typecheck, Test & Build`, `CodeQL`, `Gitleaks`, `Deploy to Staging`, `Deploy to Production`) passed successfully (`Successful in 9m`). Observed transient check failure from Vercel bot (`Deployment rate limited — retry in 24 hours`) caused by hitting Vercel Hobby account daily deployment ceiling (~100 deploys/day) from frequent push activity during the sprint. Codebase, build, tests, and CD pipelines are completely healthy.
 - Reason: Resolve visual regression snapshot diff threshold while documenting Vercel Hobby rate limits for team awareness.

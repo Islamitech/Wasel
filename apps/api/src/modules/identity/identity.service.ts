@@ -62,6 +62,29 @@ export class IdentityService {
   async requestOtp(rawPhone: string, requestedRole: string = UserRole.CUSTOMER, ip?: string) {
     const phone = normalizeEgyptianPhone(rawPhone);
 
+    // Driver Login Gate: Drivers must be officially registered in DB
+    if (requestedRole === 'driver') {
+      const [existingUser] = await this.dbService.db
+        .select()
+        .from(users)
+        .where(eq(users.phone, phone))
+        .limit(1);
+
+      if (!existingUser) {
+        throw new BadRequestException({
+          errorCode: ErrorCode.NOT_FOUND,
+          message: 'هذا الرقم غير مسجل كـ كابتن في منصة واصل. يرجى التواصل مع إدارة العمليات لفتح حساب واعتماده أولاً.',
+        });
+      }
+
+      if (!existingUser.isActive) {
+        throw new BadRequestException({
+          errorCode: ErrorCode.FORBIDDEN,
+          message: 'حساب الكابتن معلق أو بانتظار التفعيل والاعتماد من قبل إدارة واصل.',
+        });
+      }
+    }
+
     // 1. Check existing active challenge for cooldown
     const existingChallenges = await this.dbService.db
       .select()
@@ -259,7 +282,7 @@ export class IdentityService {
           if (!user.isActive) {
             throw new UnauthorizedException({
               errorCode: ErrorCode.UNAUTHORIZED,
-              message: 'حساب المستخدم معطل أو غير نشط',
+              message: 'حساب المستخدم معطل أو غير نشط من قبل الإدارة',
             });
           }
 
@@ -297,7 +320,32 @@ export class IdentityService {
               );
             }
           }
+
+          // Ensure driver profile exists with pending status if missing
+          if (requestedRole === 'driver') {
+            const [existingProfile] = await tx
+              .select()
+              .from(driverProfiles)
+              .where(eq(driverProfiles.id, user.id))
+              .limit(1);
+
+            if (!existingProfile) {
+              await tx.insert(driverProfiles).values({
+                id: user.id,
+                status: 'pending',
+                isOnline: false,
+              });
+            }
+          }
         } else {
+          // Reject new unregistered drivers - Drivers must be officially created
+          if (requestedRole === 'driver') {
+            throw new BadRequestException({
+              errorCode: ErrorCode.NOT_FOUND,
+              message: 'هذا الحساب غير مسجل كـ كابتن في منصة واصل. يرجى التواصل مع الإدارة للتسجيل والاعتماد.',
+            });
+          }
+
           // Find default region
           const [defaultRegion] = await tx
             .select()

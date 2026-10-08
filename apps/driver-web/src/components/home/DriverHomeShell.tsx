@@ -113,7 +113,7 @@ export const DriverHomeShell: React.FC<DriverHomeShellProps> = ({
             type: 'SET_VERIFICATION',
             verification: {
               level: ver.level || 1,
-              status: ver.status || 'approved',
+              status: ver.status || 'pending',
               missingRequirements: ver.missingRequirements || [],
               allowedValueTierCodes: ver.allowedValueTierCodes,
             },

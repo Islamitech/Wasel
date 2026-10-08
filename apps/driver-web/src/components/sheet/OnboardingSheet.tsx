@@ -4,6 +4,7 @@ import { Button } from '../ui/Button.js';
 import { apiClient } from '../../api.js';
 import { DriverAppState } from '../../types/driver.js';
 import { compressImageToMaxDimension } from '../../services/image/imageCompressor.js';
+import { UploadCloud, CheckCircle2, FileText } from 'lucide-react';
 
 interface OnboardingSheetProps {
   state: DriverAppState;
@@ -251,44 +252,94 @@ export const OnboardingSheet: React.FC<OnboardingSheetProps> = ({
         {/* Document Uploads with Client-Side Compression */}
         <div
           style={{
-            backgroundColor: 'var(--color-chip, #eef3ef)',
-            borderRadius: 'var(--radius-sm, 14px)',
-            padding: '14px',
+            backgroundColor: 'var(--color-chip, #f3f6f4)',
+            borderRadius: '16px',
+            padding: '16px',
+            border: '1px solid var(--color-border, #e5e7eb)',
             display: 'flex',
             flexDirection: 'column',
             gap: '12px',
           }}
         >
-          <div style={{ fontWeight: 800, fontSize: '0.9rem' }}>
-            📄 {t('onboarding.documentsTitle')}
+          <div style={{ fontWeight: 800, fontSize: '0.95rem', color: 'var(--color-ink, #12302b)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <FileText size={18} color="#12302b" />
+            <span>📄 {t('onboarding.documentsTitle')}</span>
           </div>
 
-          <div>
-            <span style={{ fontSize: '0.8rem', display: 'block', marginBottom: '2px' }}>
-              {t('onboarding.nationalIdPhoto')}
-            </span>
-            <input
-              type="file"
-              accept="image/*"
-              onChange={(e) => handleDocumentUpload('national_id_front', e)}
-              style={{ fontSize: '0.8rem' }}
-            />
-            {uploadStatus.national_id_front === 'uploading' && <span style={{ fontSize: '0.75rem', color: '#b45309' }}> جاري الرفع...</span>}
-            {uploadStatus.national_id_front === 'done' && <span style={{ fontSize: '0.75rem', color: 'green' }}> ✓ تم الرفع</span>}
+          {/* National ID Photo */}
+          <div style={{ padding: '12px 14px', backgroundColor: '#fff', borderRadius: '12px', border: '1px solid #e5e7eb' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+              <span style={{ fontSize: '0.85rem', fontWeight: 700, color: '#1f2937' }}>{t('onboarding.nationalIdPhoto')}</span>
+              {uploadStatus.national_id_front === 'done' ? (
+                <span style={{ fontSize: '0.75rem', color: '#15803d', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  <CheckCircle2 size={14} /> تم الرفع بنجاح
+                </span>
+              ) : uploadStatus.national_id_front === 'uploading' ? (
+                <span style={{ fontSize: '0.75rem', color: '#b45309', fontWeight: 700 }}>جاري الرفع...</span>
+              ) : null}
+            </div>
+            <label
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '8px',
+                padding: '8px 16px',
+                borderRadius: '10px',
+                backgroundColor: '#f3f4f6',
+                color: '#1f2937',
+                cursor: 'pointer',
+                fontSize: '0.85rem',
+                fontWeight: 600,
+                border: '1px solid #d1d5db',
+              }}
+            >
+              <UploadCloud size={16} />
+              <span>{uploadStatus.national_id_front === 'uploading' ? 'جاري الضغط والرفع...' : 'اختيار صورة البطاقة'}</span>
+              <input
+                type="file"
+                accept="image/*"
+                onChange={(e) => handleDocumentUpload('national_id_front', e)}
+                style={{ display: 'none' }}
+              />
+            </label>
           </div>
 
-          <div>
-            <span style={{ fontSize: '0.8rem', display: 'block', marginBottom: '2px' }}>
-              {t('onboarding.licensePhoto')}
-            </span>
-            <input
-              type="file"
-              accept="image/*"
-              onChange={(e) => handleDocumentUpload('driver_license', e)}
-              style={{ fontSize: '0.8rem' }}
-            />
-            {uploadStatus.driver_license === 'uploading' && <span style={{ fontSize: '0.75rem', color: '#b45309' }}> جاري الرفع...</span>}
-            {uploadStatus.driver_license === 'done' && <span style={{ fontSize: '0.75rem', color: 'green' }}> ✓ تم الرفع</span>}
+          {/* License Photo */}
+          <div style={{ padding: '12px 14px', backgroundColor: '#fff', borderRadius: '12px', border: '1px solid #e5e7eb' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+              <span style={{ fontSize: '0.85rem', fontWeight: 700, color: '#1f2937' }}>{t('onboarding.licensePhoto')}</span>
+              {uploadStatus.driver_license === 'done' ? (
+                <span style={{ fontSize: '0.75rem', color: '#15803d', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  <CheckCircle2 size={14} /> تم الرفع بنجاح
+                </span>
+              ) : uploadStatus.driver_license === 'uploading' ? (
+                <span style={{ fontSize: '0.75rem', color: '#b45309', fontWeight: 700 }}>جاري الرفع...</span>
+              ) : null}
+            </div>
+            <label
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '8px',
+                padding: '8px 16px',
+                borderRadius: '10px',
+                backgroundColor: '#f3f4f6',
+                color: '#1f2937',
+                cursor: 'pointer',
+                fontSize: '0.85rem',
+                fontWeight: 600,
+                border: '1px solid #d1d5db',
+              }}
+            >
+              <UploadCloud size={16} />
+              <span>{uploadStatus.driver_license === 'uploading' ? 'جاري الضغط والرفع...' : 'اختيار صورة الرخصة'}</span>
+              <input
+                type="file"
+                accept="image/*"
+                onChange={(e) => handleDocumentUpload('driver_license', e)}
+                style={{ display: 'none' }}
+              />
+            </label>
           </div>
         </div>
 
