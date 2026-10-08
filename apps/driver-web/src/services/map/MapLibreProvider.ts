@@ -24,13 +24,6 @@ export class MapLibreProvider implements MapProvider {
     }
 
     const envTileUrl = import.meta.env.VITE_MAP_TILE_URL as string;
-    const isProd = import.meta.env.PROD;
-
-    if (isProd && !envTileUrl) {
-      console.warn(
-        '⚠️ [PRODUCTION TILE WARNING] VITE_MAP_TILE_URL is not configured in production environment! Fallback Carto tiles are strictly reserved for local development.',
-      );
-    }
 
     const googleRoadmapTiles = [
       'https://mt0.google.com/vt/lyrs=m&hl=ar&x={x}&y={y}&z={z}',
@@ -48,14 +41,12 @@ export class MapLibreProvider implements MapProvider {
     const defaultTiles =
       import.meta.env.VITE_MAP_PROVIDER === 'osm' ? osmTiles : googleRoadmapTiles;
 
-    // Invalidate any legacy Carto URLs that trigger watermarked tiles
-    const isCartoWithoutKey =
+    // Disallow any Carto URLs (which produce "API KEY REQUIRED" watermarks)
+    const isCarto =
       Boolean(envTileUrl) &&
-      (envTileUrl.includes('carto') || envTileUrl.includes('cartocdn')) &&
-      !envTileUrl.includes('api_key') &&
-      !envTileUrl.includes('key=');
+      (envTileUrl.includes('carto') || envTileUrl.includes('cartocdn'));
 
-    const effectiveTileUrl = envTileUrl && !isCartoWithoutKey ? envTileUrl : null;
+    const effectiveTileUrl = envTileUrl && !isCarto ? envTileUrl : null;
     const tiles = effectiveTileUrl ? [effectiveTileUrl] : defaultTiles;
 
     const isGoogle = tiles === googleRoadmapTiles;
