@@ -47,14 +47,22 @@ export class MapLibreProvider implements MapProvider {
     const defaultTiles =
       import.meta.env.VITE_MAP_PROVIDER === 'osm' ? osmTiles : googleRoadmapTiles;
 
-    const tiles = envTileUrl ? [envTileUrl] : defaultTiles;
+    // Invalidate any legacy Carto URLs that trigger watermarked tiles
+    const isCartoWithoutKey =
+      Boolean(envTileUrl) &&
+      (envTileUrl.includes('carto') || envTileUrl.includes('cartocdn')) &&
+      !envTileUrl.includes('api_key') &&
+      !envTileUrl.includes('key=');
+
+    const effectiveTileUrl = envTileUrl && !isCartoWithoutKey ? envTileUrl : null;
+    const tiles = effectiveTileUrl ? [effectiveTileUrl] : defaultTiles;
 
     const isGoogle = tiles === googleRoadmapTiles;
 
     const style: any = {
       version: 8,
       sources: {
-        'map-tiles': {
+        'google-roadmap-tiles': {
           type: 'raster',
           tiles,
           tileSize: 256,
@@ -65,9 +73,9 @@ export class MapLibreProvider implements MapProvider {
       },
       layers: [
         {
-          id: 'map-tiles-layer',
+          id: 'google-roadmap-layer',
           type: 'raster',
-          source: 'map-tiles',
+          source: 'google-roadmap-tiles',
           minzoom: 0,
           maxzoom: isGoogle ? 21 : 19,
         },
