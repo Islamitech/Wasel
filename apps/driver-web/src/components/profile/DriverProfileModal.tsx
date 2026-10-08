@@ -6,13 +6,36 @@ import {
 import { apiClient } from '../../api.js';
 import { DriverAppState, ThemeMode } from '../../types/driver.js';
 
+interface DriverProfileDetails {
+  ratingAvg?: number | string;
+  completedCount?: number;
+  acceptanceRate?: number | string;
+  vehicles?: Array<{
+    id?: string;
+    model?: string;
+    plate?: string;
+    plateNumber?: string;
+    vehicleClass?: string;
+    isActive?: boolean;
+    isVerified?: boolean;
+    [key: string]: unknown;
+  }>;
+  subscription?: {
+    status?: string;
+    expiresAt?: string;
+    planName?: string;
+    [key: string]: unknown;
+  };
+  [key: string]: unknown;
+}
+
 interface DriverProfileModalProps {
   isOpen: boolean;
   onClose: () => void;
   state: DriverAppState;
   onSelectTheme: (theme: ThemeMode) => void;
   onLogout: () => void;
-  onUpdateUser?: (updated: any) => void;
+  onUpdateUser?: (updated: { fullName?: string | null }) => void;
 }
 
 export const DriverProfileModal: React.FC<DriverProfileModalProps> = ({
@@ -30,7 +53,7 @@ export const DriverProfileModal: React.FC<DriverProfileModalProps> = ({
   const [saveSuccessMsg, setSaveSuccessMsg] = useState('');
   
   // Full driver profile details from API
-  const [driverData, setDriverData] = useState<any>(null);
+  const [driverData, setDriverData] = useState<DriverProfileDetails | null>(null);
   const [isLoadingDetails, setIsLoadingDetails] = useState(false);
 
   useEffect(() => {
@@ -41,10 +64,10 @@ export const DriverProfileModal: React.FC<DriverProfileModalProps> = ({
     if (isOpen) {
       setIsLoadingDetails(true);
       apiClient.auth.getDriverProfile()
-        .then((res: any) => {
-          setDriverData(res);
+        .then((res: unknown) => {
+          setDriverData(res as DriverProfileDetails);
         })
-        .catch((err) => {
+        .catch((err: unknown) => {
           console.warn('Driver profile not loaded:', err);
         })
         .finally(() => {
@@ -67,8 +90,9 @@ export const DriverProfileModal: React.FC<DriverProfileModalProps> = ({
       setSaveSuccessMsg('تم تحديث اسم الكابتن بنجاح');
       setTimeout(() => setSaveSuccessMsg(''), 3000);
       setIsEditingName(false);
-    } catch (err: any) {
-      alert(err.message || 'حدث خطأ أثناء حفظ البيانات');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'حدث خطأ أثناء حفظ البيانات';
+      alert(msg);
     } finally {
       setIsSavingName(false);
     }

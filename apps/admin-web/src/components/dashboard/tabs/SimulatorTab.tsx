@@ -300,7 +300,7 @@ export const SimulatorTab: React.FC = () => {
               </label>
               <select
                 value={otpRole}
-                onChange={(e) => setOtpRole(e.target.value as any)}
+                onChange={(e) => setOtpRole(e.target.value as 'customer' | 'driver')}
                 style={{ padding: '9px 12px', borderRadius: '8px', border: '1px solid #cbd5e1' }}
               >
                 <option value="driver">كابتن (Driver)</option>
@@ -408,7 +408,7 @@ export const SimulatorTab: React.FC = () => {
               </label>
               <select
                 value={regRole}
-                onChange={(e) => setRegRole(e.target.value as any)}
+                onChange={(e) => setRegRole(e.target.value as 'customer' | 'driver')}
                 style={{ padding: '9px 12px', borderRadius: '8px', border: '1px solid #cbd5e1' }}
               >
                 <option value="driver">كابتن معتمد</option>

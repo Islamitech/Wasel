@@ -22,7 +22,7 @@ export const ChatModal: React.FC<ChatModalProps> = ({
   messages: initialMessages = [],
   onSendMessage,
 }) => {
-  const [chatMessages, setChatMessages] = useState<any[]>(initialMessages);
+  const [chatMessages, setChatMessages] = useState<MessageResponseDto[]>(initialMessages);
   const [inputText, setInputText] = useState('');
   const [isSending, setIsSending] = useState(false);
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -42,7 +42,7 @@ export const ChatModal: React.FC<ChatModalProps> = ({
     const fetchMessages = () => {
       apiClient.messaging
         .list(agreementId)
-        .then((msgs: any[]) => {
+        .then((msgs: MessageResponseDto[]) => {
           if (isMounted && Array.isArray(msgs)) {
             setChatMessages(msgs);
           }
@@ -164,7 +164,7 @@ export const ChatModal: React.FC<ChatModalProps> = ({
               لا توجد رسائل سابقة. يمكنك إرسال تعليمات إضافية للكابتن هنا.
             </div>
           ) : (
-            chatMessages.map((m: any) => {
+            chatMessages.map((m: MessageResponseDto) => {
               const isMe = m.senderId === currentUserId;
               return (
                 <div

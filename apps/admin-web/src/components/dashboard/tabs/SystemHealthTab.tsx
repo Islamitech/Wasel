@@ -7,7 +7,7 @@ import { Chip } from '../../ui/Chip.js';
 interface StreamEventItem {
   id: string;
   type: string;
-  data: any;
+  data: unknown;
   timestamp: string;
 }
 
@@ -30,7 +30,7 @@ export const SystemHealthTab: React.FC = () => {
 
   // Subscribe to Realtime SSE Stream
   useEffect(() => {
-    let sub: any = null;
+    let sub: { close?: () => void } | null = null;
     let isActive = true;
 
     try {
@@ -47,7 +47,7 @@ export const SystemHealthTab: React.FC = () => {
             setStreamError('انقطع الاتصال بقناة البث الحي، جاري إعادة المحاولة تلقائياً...');
           }
         },
-        onEvent: (eventName: string, eventData: any) => {
+        onEvent: (eventName: string, eventData: unknown) => {
           if (isActive) {
             const newItem: StreamEventItem = {
               id: `${Date.now()}-${Math.random()}`,
@@ -59,8 +59,9 @@ export const SystemHealthTab: React.FC = () => {
           }
         },
       });
-    } catch (err: any) {
-      setStreamError(err?.message || 'تعذر الاتصال بقناة البث الحي');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'تعذر الاتصال بقناة البث الحي';
+      setStreamError(msg);
     }
 
     return () => {

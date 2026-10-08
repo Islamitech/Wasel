@@ -52,8 +52,21 @@ export const CustomerProfileModal: React.FC<CustomerProfileModalProps> = ({
   const [newDetails, setNewDetails] = useState('');
   const [isAddingAddr, setIsAddingAddr] = useState(false);
 
+interface OrderHistoryItem {
+  id: string;
+  orderNumber?: string;
+  status?: string;
+  createdAt?: string;
+  agreedFare?: number;
+  actualFareMinor?: number | null;
+  quotedFareMinor?: number | null;
+  stops?: Array<{ addressText?: string; actionType?: string }>;
+  vehicleType?: string;
+  [key: string]: unknown;
+}
+
   // Orders History state
-  const [orders, setOrders] = useState<any[]>([]);
+  const [orders, setOrders] = useState<OrderHistoryItem[]>([]);
   const [isLoadingOrders, setIsLoadingOrders] = useState(false);
 
   // Theme
@@ -70,11 +83,12 @@ export const CustomerProfileModal: React.FC<CustomerProfileModalProps> = ({
     if (activeTab === 'history') {
       setIsLoadingOrders(true);
       apiClient.orders.list({ limit: 15 })
-        .then((res: any) => {
-          const list = Array.isArray(res) ? res : res?.items || [];
+        .then((res: unknown) => {
+          const r = res as { items?: OrderHistoryItem[] } | OrderHistoryItem[];
+          const list = Array.isArray(r) ? r : r?.items || [];
           setOrders(list);
         })
-        .catch((err) => {
+        .catch((err: unknown) => {
           console.error('Failed to fetch orders history:', err);
         })
         .finally(() => {
@@ -97,8 +111,9 @@ export const CustomerProfileModal: React.FC<CustomerProfileModalProps> = ({
       setSaveSuccessMsg('تم تحديث الاسم بنجاح');
       setTimeout(() => setSaveSuccessMsg(''), 3000);
       setIsEditingName(false);
-    } catch (err: any) {
-      alert(err.message || 'حدث خطأ أثناء حفظ الاسم');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'حدث خطأ أثناء حفظ الاسم';
+      alert(msg);
     } finally {
       setIsSavingName(false);
     }
@@ -739,7 +754,7 @@ export const CustomerProfileModal: React.FC<CustomerProfileModalProps> = ({
                   </div>
                 </div>
               ) : (
-                orders.map((ord: any) => (
+                orders.map((ord: OrderHistoryItem) => (
                   <div
                     key={ord.id}
                     style={{
@@ -756,7 +771,7 @@ export const CustomerProfileModal: React.FC<CustomerProfileModalProps> = ({
                       <div style={{ fontWeight: 800, fontSize: '0.9rem' }}>
                         مشوار #{ord.id ? ord.id.slice(0, 8) : ''}
                       </div>
-                      {getStatusBadge(ord.status)}
+                      {getStatusBadge(ord.status || '')}
                     </div>
 
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.85rem' }}>

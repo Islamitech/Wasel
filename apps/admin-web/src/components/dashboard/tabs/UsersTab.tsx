@@ -464,7 +464,7 @@ export const UsersTab: React.FC = () => {
                 </label>
                 <select
                   value={otpRole}
-                  onChange={(e: any) => setOtpRole(e.target.value)}
+                  onChange={(e) => setOtpRole(e.target.value as 'customer' | 'driver')}
                   style={{
                     width: '100%',
                     padding: '10px 14px',
@@ -681,7 +681,7 @@ export const UsersTab: React.FC = () => {
               </label>
               <select
                 value={regRole}
-                onChange={(e: any) => setRegRole(e.target.value)}
+                onChange={(e) => setRegRole(e.target.value as 'customer' | 'driver')}
                 style={{
                   width: '100%',
                   padding: '12px 14px',

@@ -407,7 +407,7 @@ export const CustomerAppShell: React.FC<CustomerAppShellProps> = ({ user: initia
         } else if (fullOrder.status === OrderStatus.CANCELLED && state.sheetState !== 'cancelled') {
           dispatch({ type: 'ORDER_UPDATED', order: fullOrder });
         }
-      } catch (err) {
+      } catch {
         // Silent catch on network jitter
       }
     };
