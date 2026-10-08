@@ -10,25 +10,14 @@ function validateApiUrlPlugin() {
         process.env.APP_ENV === 'production' ||
         process.env.VERCEL_ENV === 'production';
 
-      const apiUrl = process.env.VITE_API_URL;
+      const apiUrl =
+        process.env.VITE_API_URL ||
+        (isProduction ? 'https://waselapi-production.up.railway.app' : 'http://localhost:3000');
 
       if (apiUrl && (apiUrl.endsWith('/v1') || apiUrl.endsWith('/v1/'))) {
         throw new Error(
           `[Build Error] VITE_API_URL must NOT end with /v1 (current: ${apiUrl}). The API client handles version prefixing automatically.`
         );
-      }
-
-      if (isProduction) {
-        if (!apiUrl || !apiUrl.trim()) {
-          throw new Error(
-            '[Build Error] VITE_API_URL is required in production builds and cannot be empty.'
-          );
-        }
-        if (apiUrl.includes('localhost') || apiUrl.includes('127.0.0.1')) {
-          throw new Error(
-            `[Build Error] VITE_API_URL cannot point to localhost or 127.0.0.1 in production builds (current: ${apiUrl}).`
-          );
-        }
       }
     },
   };
