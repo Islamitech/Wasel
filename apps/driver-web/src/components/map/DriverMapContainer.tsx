@@ -127,7 +127,7 @@ export const DriverMapContainer: React.FC<DriverMapContainerProps> = ({
         aria-label="تحديد موقعي"
         style={{
           position: 'absolute',
-          top: '16px',
+          top: 'calc(16px + var(--safe-top, 0px))',
           left: '16px',
           width: '46px',
           height: '46px',

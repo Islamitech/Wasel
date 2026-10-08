@@ -724,16 +724,23 @@ export const DriverHomeShell: React.FC<DriverHomeShellProps> = ({
       style={{
         position: 'relative',
         width: '100vw',
-        height: '100vh',
+        height: '100dvh',
         overflow: 'hidden',
-        display: 'flex',
-        flexDirection: 'column',
+        backgroundColor: 'var(--color-sheet, #ffffff)',
       }}
     >
       <OfflineBanner />
 
-      {/* Map Viewport Area (Takes entire top space) */}
-      <div style={{ flex: 1, position: 'relative', width: '100%', height: '100%' }}>
+      {/* Map Viewport Area (Full screen background) */}
+      <div
+        style={{
+          position: 'absolute',
+          inset: 0,
+          width: '100%',
+          height: '100%',
+          zIndex: 1,
+        }}
+      >
         <Suspense
           fallback={
             <div
@@ -773,21 +780,66 @@ export const DriverHomeShell: React.FC<DriverHomeShellProps> = ({
         </Suspense>
       </div>
 
-      {/* Bottom Sheet UI Container (Driven by explicit state machine) */}
+      {/* Top Floating Menu Button (Accessible in all non-run states) */}
+      {state.sheetState !== 'run' && (
+        <button
+          type="button"
+          onClick={() => dispatch({ type: 'TOGGLE_MENU', open: true })}
+          aria-label="القائمة الرئيسية"
+          style={{
+            position: 'absolute',
+            top: 'calc(16px + var(--safe-top, 0px))',
+            right: '16px',
+            width: '46px',
+            height: '46px',
+            borderRadius: '50%',
+            backgroundColor: 'var(--color-sheet, #ffffff)',
+            color: 'var(--color-ink, #12302b)',
+            border: '1.5px solid var(--color-border, #e5e7eb)',
+            boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            cursor: 'pointer',
+            zIndex: 50,
+            fontSize: '1.2rem',
+          }}
+        >
+          ☰
+        </button>
+      )}
+
+      {/* Bottom Sheet UI Container (Driven by explicit state machine, pinned to bottom) */}
       <div
         role="region"
         aria-label="لوحة تحكم الكابتن"
         style={{
-          position: 'relative',
+          position: 'fixed',
+          bottom: 0,
+          left: 0,
+          right: 0,
           backgroundColor: 'var(--color-sheet, #ffffff)',
           borderTop: '2px solid var(--color-border, #e5e7eb)',
-          borderRadius: '24px 24px 0 0',
-          boxShadow: '0 -6px 24px rgba(0,0,0,0.12)',
+          borderTopLeftRadius: '24px',
+          borderTopRightRadius: '24px',
+          boxShadow: '0 -6px 24px rgba(0,0,0,0.15)',
           zIndex: 100,
           maxHeight: '75vh',
           overflowY: 'auto',
+          paddingBottom: 'calc(12px + var(--safe-bottom, 0px))',
         }}
       >
+        {/* Grab Handle */}
+        <div
+          style={{
+            width: '44px',
+            height: '5px',
+            backgroundColor: '#d1d5db',
+            borderRadius: '9999px',
+            margin: '12px auto 6px auto',
+          }}
+        />
+
         {/* Error Notification Bar */}
         {state.errorMessage && (
           <div
@@ -840,7 +892,7 @@ export const DriverHomeShell: React.FC<DriverHomeShellProps> = ({
           />
         )}
 
-        {state.sheetState === 'off' && (
+        {(state.sheetState === 'off' || state.sheetState === 'auth') && (
           <OffSheet
             state={state}
             onGoOnline={handleGoOnline}
@@ -856,43 +908,67 @@ export const DriverHomeShell: React.FC<DriverHomeShellProps> = ({
           />
         )}
 
-        {state.sheetState === 'incoming' && state.incomingOrder && (
-          <IncomingOrderSheet
-            orderCard={state.incomingOrder}
-            onAcceptShopping={handleAcceptShopping}
-            onOpenBidding={() => dispatch({ type: 'OPEN_BIDDING' })}
-            onDecline={handleDeclineOrder}
-          />
+        {state.sheetState === 'incoming' && (
+          state.incomingOrder ? (
+            <IncomingOrderSheet
+              orderCard={state.incomingOrder}
+              onAcceptShopping={handleAcceptShopping}
+              onOpenBidding={() => dispatch({ type: 'OPEN_BIDDING' })}
+              onDecline={handleDeclineOrder}
+            />
+          ) : (
+            <WaitingSheet
+              state={state}
+              onGoOffline={handleGoOffline}
+              onOpenMenu={() => dispatch({ type: 'TOGGLE_MENU', open: true })}
+            />
+          )
         )}
 
-        {state.sheetState === 'bidding' && state.bidding && (
-          <BiddingSheet
-            bidding={state.bidding}
-            onUpdatePrice={(amountMinor) =>
-              dispatch({ type: 'UPDATE_BID_PRICE', amountMinor })
-            }
-            onSubmitOffer={handleSubmitOffer}
-            onAcceptCounter={handleAcceptCounter}
-            onCancel={() => dispatch({ type: 'DECLINE_ORDER' })}
-          />
+        {state.sheetState === 'bidding' && (
+          state.bidding ? (
+            <BiddingSheet
+              bidding={state.bidding}
+              onUpdatePrice={(amountMinor) =>
+                dispatch({ type: 'UPDATE_BID_PRICE', amountMinor })
+              }
+              onSubmitOffer={handleSubmitOffer}
+              onAcceptCounter={handleAcceptCounter}
+              onCancel={() => dispatch({ type: 'DECLINE_ORDER' })}
+            />
+          ) : (
+            <WaitingSheet
+              state={state}
+              onGoOffline={handleGoOffline}
+              onOpenMenu={() => dispatch({ type: 'TOGGLE_MENU', open: true })}
+            />
+          )
         )}
 
         {state.sheetState === 'run' && (
-          <RunSheet
-            state={state}
-            onArrive={handleArrive}
-            onStartWait={handleStartWait}
-            onEndWait={handleEndWait}
-            onIssueInvoice={handleIssueInvoice}
-            onPaymentConfirmed={handlePaymentConfirmed}
-            onCompleteStop={handleCompleteStop}
-            onCompleteAgreement={handleCompleteAgreement}
-            onOpenChat={() => dispatch({ type: 'TOGGLE_CHAT', open: true })}
-            onOpenCancelModal={() =>
-              dispatch({ type: 'TOGGLE_CANCEL_MODAL', open: true })
-            }
-            onAddInFlightStop={handleAddInFlightStop}
-          />
+          state.activeAgreement ? (
+            <RunSheet
+              state={state}
+              onArrive={handleArrive}
+              onStartWait={handleStartWait}
+              onEndWait={handleEndWait}
+              onIssueInvoice={handleIssueInvoice}
+              onPaymentConfirmed={handlePaymentConfirmed}
+              onCompleteStop={handleCompleteStop}
+              onCompleteAgreement={handleCompleteAgreement}
+              onOpenChat={() => dispatch({ type: 'TOGGLE_CHAT', open: true })}
+              onOpenCancelModal={() =>
+                dispatch({ type: 'TOGGLE_CANCEL_MODAL', open: true })
+              }
+              onAddInFlightStop={handleAddInFlightStop}
+            />
+          ) : (
+            <OffSheet
+              state={state}
+              onGoOnline={handleGoOnline}
+              onOpenMenu={() => dispatch({ type: 'TOGGLE_MENU', open: true })}
+            />
+          )
         )}
 
         {state.sheetState === 'done' && (
