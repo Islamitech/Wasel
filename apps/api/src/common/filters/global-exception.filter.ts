@@ -113,7 +113,10 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       message = 'حدث خطأ داخلي في الخادم';
       errorCode = ErrorCode.INTERNAL_ERROR;
       i18nKey = 'errors.common.internal_error';
-      details = undefined;
+      details =
+        process.env.ALLOW_DEV_PROVIDERS === 'true'
+          ? { error: exception.message, stack: exception.stack }
+          : undefined;
       this.logger.error(
         `Unhandled Internal Exception [${requestId}]: ${exception.message}`,
         exception.stack,
