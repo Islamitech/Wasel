@@ -31,31 +31,45 @@ export class MapLibreProvider implements MapProvider {
       );
     }
 
-    const defaultTiles = [
+    const googleRoadmapTiles = [
+      'https://mt0.google.com/vt/lyrs=m&hl=ar&x={x}&y={y}&z={z}',
+      'https://mt1.google.com/vt/lyrs=m&hl=ar&x={x}&y={y}&z={z}',
+      'https://mt2.google.com/vt/lyrs=m&hl=ar&x={x}&y={y}&z={z}',
+      'https://mt3.google.com/vt/lyrs=m&hl=ar&x={x}&y={y}&z={z}',
+    ];
+
+    const osmTiles = [
       'https://a.tile.openstreetmap.org/{z}/{x}/{y}.png',
       'https://b.tile.openstreetmap.org/{z}/{x}/{y}.png',
       'https://c.tile.openstreetmap.org/{z}/{x}/{y}.png',
     ];
 
+    const defaultTiles =
+      import.meta.env.VITE_MAP_PROVIDER === 'osm' ? osmTiles : googleRoadmapTiles;
+
     const tiles = envTileUrl ? [envTileUrl] : defaultTiles;
+
+    const isGoogle = tiles === googleRoadmapTiles;
 
     const style: any = {
       version: 8,
       sources: {
-        'osm-tiles': {
+        'map-tiles': {
           type: 'raster',
           tiles,
           tileSize: 256,
-          attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+          attribution: isGoogle
+            ? '&copy; Google Maps'
+            : '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
         },
       },
       layers: [
         {
-          id: 'osm-tiles-layer',
+          id: 'map-tiles-layer',
           type: 'raster',
-          source: 'osm-tiles',
+          source: 'map-tiles',
           minzoom: 0,
-          maxzoom: 19,
+          maxzoom: isGoogle ? 21 : 19,
         },
       ],
     };
