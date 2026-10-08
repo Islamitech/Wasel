@@ -1,4 +1,5 @@
 import { Injectable, Inject, BadRequestException, NotFoundException } from '@nestjs/common';
+import * as bcrypt from 'bcryptjs';
 import { DatabaseService } from '../../database/database.service.js';
 import {
   vehicleTypes,
@@ -14,14 +15,19 @@ import {
   subscriptions,
   disputes,
   users,
+  otpChallenges,
+  userRoles,
+  customerProfiles,
+  regions,
 } from '../../database/schema/index.js';
-import { eq, and, desc, asc, sql, ilike, or, lt } from 'drizzle-orm';
+import { eq, and, desc, asc, sql, ilike, or, lt, inArray } from 'drizzle-orm';
 import { AuditService } from '../audit/index.js';
 import { maskPhone, maskEmail } from '../../common/utils/masking.js';
 import {
   AdminPricingRuleDto,
   AdminEscalationRuleDto,
   AdminUserSearchQueryDto,
+  normalizeEgyptianPhone,
 } from '@wasel/shared';
 
 @Injectable()
@@ -292,6 +298,25 @@ export class AdminService {
     const items = hasNext ? userRecords.slice(0, limit) : userRecords;
     const nextCursor = hasNext ? items[items.length - 1]!.createdAt.toISOString() : null;
 
+    // Fetch roles for retrieved users
+    const userIds = items.map((u) => u.id);
+    const rolesByUser: Record<string, string[]> = {};
+    if (userIds.length > 0) {
+      const userRoleRows = await this.dbService.db
+        .select({
+          userId: userRoles.userId,
+          roleName: roles.name,
+        })
+        .from(userRoles)
+        .innerJoin(roles, eq(userRoles.roleId, roles.id))
+        .where(inArray(userRoles.userId, userIds));
+
+      for (const r of userRoleRows) {
+        if (!rolesByUser[r.userId]) rolesByUser[r.userId] = [];
+        rolesByUser[r.userId]!.push(r.roleName);
+      }
+    }
+
     if (adminId) {
       await this.auditService.log({
         userId: adminId,
@@ -308,8 +333,10 @@ export class AdminService {
       items: items.map((u) => ({
         id: u.id,
         fullName: u.fullName || 'مستخدم واصل',
+        phone: u.phone,
         phoneMasked: maskPhone(u.phone),
         emailMasked: maskEmail(u.email),
+        roles: rolesByUser[u.id] || [],
         isActive: u.isActive,
         createdAt: u.createdAt.toISOString(),
       })),
@@ -355,6 +382,186 @@ export class AdminService {
         fullName: updated!.fullName,
         isActive: updated!.isActive,
       },
+    };
+  }
+
+  // --- 5. OTP Management & Direct Registration from Admin ---
+
+  async sendOtpFromAdmin(adminId: string, phoneInput: string, role = 'customer', customCode?: string) {
+    const phone = normalizeEgyptianPhone(phoneInput);
+    const code = customCode && customCode.trim() ? customCode.trim() : '123456';
+    const hashedCode = await bcrypt.hash(code, 10);
+    const now = new Date();
+    const expiresAt = new Date(now.getTime() + 15 * 60 * 1000); // 15 min validity
+    const resendAvailableAt = new Date(now.getTime() + 10 * 1000);
+
+    const [challenge] = await this.dbService.db
+      .insert(otpChallenges)
+      .values({
+        phone,
+        hashedCode,
+        attempts: 0,
+        maxAttempts: 5,
+        resendAvailableAt,
+        expiresAt,
+      })
+      .returning();
+
+    await this.auditService.log({
+      userId: adminId,
+      action: 'admin_sent_otp',
+      entityType: 'otp_challenges',
+      entityId: challenge?.id,
+      afterState: { phone, role, codeSent: code },
+    });
+
+    return {
+      success: true,
+      phone,
+      code,
+      expiresAt: expiresAt.toISOString(),
+      message: `تم توليد وإرسال رمز التحقق [ ${code} ] بنجاح للرقم ${phone}`,
+    };
+  }
+
+  async getRecentOtps() {
+    const list = await this.dbService.db
+      .select({
+        id: otpChallenges.id,
+        phone: otpChallenges.phone,
+        attempts: otpChallenges.attempts,
+        maxAttempts: otpChallenges.maxAttempts,
+        resendAvailableAt: otpChallenges.resendAvailableAt,
+        expiresAt: otpChallenges.expiresAt,
+        verifiedAt: otpChallenges.verifiedAt,
+        createdAt: otpChallenges.createdAt,
+      })
+      .from(otpChallenges)
+      .orderBy(desc(otpChallenges.createdAt))
+      .limit(25);
+
+    return {
+      items: list.map((item) => ({
+        ...item,
+        phoneMasked: maskPhone(item.phone),
+        isExpired: item.expiresAt < new Date(),
+        isVerified: Boolean(item.verifiedAt),
+      })),
+    };
+  }
+
+  async registerOfficialUser(adminId: string, phoneInput: string, fullName: string, role: string) {
+    const phone = normalizeEgyptianPhone(phoneInput);
+
+    // 1. Check if user already exists
+    let [user] = await this.dbService.db
+      .select()
+      .from(users)
+      .where(eq(users.phone, phone))
+      .limit(1);
+
+    if (user) {
+      // If inactive, activate user
+      if (!user.isActive) {
+        const [activated] = await this.dbService.db
+          .update(users)
+          .set({ isActive: true, fullName: fullName || user.fullName })
+          .where(eq(users.id, user.id))
+          .returning();
+        user = activated!;
+      }
+    } else {
+      // Find default region
+      const [defaultRegion] = await this.dbService.db
+        .select()
+        .from(regions)
+        .where(eq(regions.code, 'EG-GZ-HDA'))
+        .limit(1);
+
+      const [created] = await this.dbService.db
+        .insert(users)
+        .values({
+          phone,
+          fullName: fullName.trim() || 'مستخدم مسجل',
+          regionId: defaultRegion?.id,
+          isActive: true,
+        })
+        .returning();
+      user = created!;
+    }
+
+    // 2. Assign role
+    const targetRoleName = role === 'driver' ? 'driver' : 'customer';
+    const [roleRecord] = await this.dbService.db
+      .select()
+      .from(roles)
+      .where(eq(roles.name, targetRoleName))
+      .limit(1);
+
+    if (roleRecord) {
+      const [existingUserRole] = await this.dbService.db
+        .select()
+        .from(userRoles)
+        .where(and(eq(userRoles.userId, user.id), eq(userRoles.roleId, roleRecord.id)))
+        .limit(1);
+
+      if (!existingUserRole) {
+        await this.dbService.db.insert(userRoles).values({
+          userId: user.id,
+          roleId: roleRecord.id,
+        });
+      }
+    }
+
+    // 3. Ensure profile exists
+    if (targetRoleName === 'driver') {
+      const [drvProfile] = await this.dbService.db
+        .select()
+        .from(driverProfiles)
+        .where(eq(driverProfiles.id, user.id))
+        .limit(1);
+
+      if (!drvProfile) {
+        await this.dbService.db.insert(driverProfiles).values({
+          id: user.id,
+          status: 'approved',
+          regionId: user.regionId,
+          isOnline: false,
+        });
+      }
+    } else {
+      const [custProfile] = await this.dbService.db
+        .select()
+        .from(customerProfiles)
+        .where(eq(customerProfiles.id, user.id))
+        .limit(1);
+
+      if (!custProfile) {
+        await this.dbService.db.insert(customerProfiles).values({
+          id: user.id,
+          regionId: user.regionId,
+        });
+      }
+    }
+
+    await this.auditService.log({
+      userId: adminId,
+      action: 'admin_registered_user',
+      entityType: 'users',
+      entityId: user.id,
+      afterState: { phone, fullName, role: targetRoleName },
+    });
+
+    return {
+      success: true,
+      user: {
+        id: user.id,
+        phone: user.phone,
+        fullName: user.fullName,
+        isActive: user.isActive,
+        role: targetRoleName,
+      },
+      message: `تم تسجيل وتفعيل حساب ${targetRoleName === 'driver' ? 'الكابتن' : 'العميل'} بنجاح في قاعدة البيانات`,
     };
   }
 }

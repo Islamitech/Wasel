@@ -642,8 +642,23 @@ export class WaselApiClient {
       return this.request<any[]>(`/admin/audit-logs?${params.toString()}`);
     },
 
-    searchUsers: (q: string) =>
-      this.request<any[]>(`/admin/users?q=${encodeURIComponent(q)}`),
+    searchUsers: (q?: string) =>
+      this.request<any>(`/admin/users${q ? `?q=${encodeURIComponent(q)}` : ''}`),
+
+    sendOtp: (dto: { phone: string; role?: string; customCode?: string }) =>
+      this.request<{ success: boolean; phone: string; code: string; message: string }>('/admin/otp/send', {
+        method: 'POST',
+        body: JSON.stringify(dto),
+      }),
+
+    getRecentOtps: () =>
+      this.request<{ items: any[] }>('/admin/otp/recent'),
+
+    registerUser: (dto: { phone: string; fullName: string; role: 'customer' | 'driver' }) =>
+      this.request<{ success: boolean; user: any; message: string }>('/admin/users/create', {
+        method: 'POST',
+        body: JSON.stringify(dto),
+      }),
 
     assignDispute: (disputeId: string, assignedToId: string) =>
       this.request<any>(`/admin/disputes/${disputeId}/assign`, {

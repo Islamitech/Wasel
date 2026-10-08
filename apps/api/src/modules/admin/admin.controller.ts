@@ -252,5 +252,31 @@ export class AdminController {
   ) {
     return this.adminService.updateUserStatus(userId, adminId, body.isActive, body.reason);
   }
+
+  // --- OTP & Official Registration from Admin Console ---
+
+  @Post('otp/send')
+  @ApiOperation({ summary: 'Generate and send OTP code from admin dashboard' })
+  async sendOtpFromAdmin(
+    @CurrentUser('userId') adminId: string,
+    @Body() body: { phone: string; role?: string; customCode?: string },
+  ) {
+    return this.adminService.sendOtpFromAdmin(adminId, body.phone, body.role, body.customCode);
+  }
+
+  @Get('otp/recent')
+  @ApiOperation({ summary: 'List recent OTP challenges and status' })
+  async getRecentOtps() {
+    return this.adminService.getRecentOtps();
+  }
+
+  @Post('users/create')
+  @ApiOperation({ summary: 'Register and activate customer or captain officially from admin' })
+  async registerOfficialUser(
+    @CurrentUser('userId') adminId: string,
+    @Body() body: { phone: string; fullName: string; role: 'customer' | 'driver' },
+  ) {
+    return this.adminService.registerOfficialUser(adminId, body.phone, body.fullName, body.role);
+  }
 }
 
