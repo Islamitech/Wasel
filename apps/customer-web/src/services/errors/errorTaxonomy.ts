@@ -99,9 +99,17 @@ export function getUiError(err: any): UiErrorDetails {
   if (code && ERROR_TAXONOMY[code]) {
     return ERROR_TAXONOMY[code];
   }
-  if (!navigator.onLine || err?.message?.toLowerCase().includes('network')) {
+  const msg = (err?.message || '').toLowerCase();
+  if (
+    (typeof navigator !== 'undefined' && !navigator.onLine) ||
+    msg.includes('network') ||
+    msg.includes('fetch') ||
+    msg.includes('failed to fetch') ||
+    msg.includes('load failed') ||
+    msg.includes('abort')
+  ) {
     return {
-      arabicMessage: 'تعذر الاتصال بالخادم. يرجى التحقق من اتصال الإنترنت.',
+      arabicMessage: 'تعذر الاتصال بخادم واصل. يرجى التحقق من اتصال الإنترنت أو تشغيل الخادم.',
       recoveryActionLabel: 'إعادة المحاولة',
       actionType: 'retry',
     };

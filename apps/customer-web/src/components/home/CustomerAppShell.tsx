@@ -4,6 +4,7 @@ import { apiClient } from '../../api.js';
 import { customerReducer, INITIAL_CUSTOMER_STATE } from '../../machines/customerStateMachine.js';
 import { Coordinates } from '../../types/customer.js';
 import { Sheet } from '../ui/Sheet.js';
+import { Button } from '../ui/Button.js';
 
 const MapContainer = lazy(() => import('../map/MapContainer.js').then((m) => ({ default: m.MapContainer })));
 import { IdleSheet } from '../sheet/IdleSheet.js';
@@ -681,44 +682,28 @@ export const CustomerAppShell: React.FC<CustomerAppShellProps> = ({ user, onLogo
         {state.sheetState === 'cancelled' && (
           <div style={{ textAlign: 'center', padding: '16px 0', display: 'flex', flexDirection: 'column', gap: '14px' }}>
             <h3 style={{ fontSize: '1.2rem', fontWeight: 800, color: '#dc2626' }}>تم إلغاء الطلب</h3>
-            <p style={{ fontSize: '0.9rem', color: '#4b5563' }}>{state.errorMessage || 'تم إلغاء الطلب بنجاح.'}</p>
-            <button
-              type="button"
+            <p style={{ fontSize: '0.9rem', color: 'var(--color-text-muted, #4b5563)' }}>{state.errorMessage || 'تم إلغاء الطلب بنجاح.'}</p>
+            <Button
+              variant="primary"
               onClick={() => dispatch({ type: 'RESET' })}
-              style={{
-                height: '52px',
-                borderRadius: 'var(--radius-md, 18px)',
-                backgroundColor: 'var(--color-ink, #12302b)',
-                color: '#ffffff',
-                border: 'none',
-                fontWeight: 700,
-                cursor: 'pointer',
-              }}
+              style={{ fontWeight: 700 }}
             >
               بدء طلب جديد
-            </button>
+            </Button>
           </div>
         )}
 
         {state.sheetState === 'error' && (
           <div style={{ textAlign: 'center', padding: '16px 0', display: 'flex', flexDirection: 'column', gap: '14px' }}>
             <h3 style={{ fontSize: '1.2rem', fontWeight: 800, color: '#dc2626' }}>تنبيه</h3>
-            <p style={{ fontSize: '0.9rem', color: '#4b5563' }}>{state.errorMessage}</p>
-            <button
-              type="button"
+            <p style={{ fontSize: '0.9rem', color: 'var(--color-text-muted, #4b5563)' }}>{state.errorMessage}</p>
+            <Button
+              variant="primary"
               onClick={() => dispatch({ type: 'CLEAR_ERROR' })}
-              style={{
-                height: '52px',
-                borderRadius: 'var(--radius-md, 18px)',
-                backgroundColor: 'var(--color-ink, #12302b)',
-                color: '#ffffff',
-                border: 'none',
-                fontWeight: 700,
-                cursor: 'pointer',
-              }}
+              style={{ fontWeight: 700 }}
             >
               {state.errorActionLabel || 'حسناً'}
-            </button>
+            </Button>
           </div>
         )}
       </Sheet>
