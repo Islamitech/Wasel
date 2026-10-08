@@ -1,7 +1,7 @@
 {
   "ci": {
     "collect": {
-      "startServerCommand": "pnpm preview --port 4173",
+      "startServerCommand": "pnpm --filter @wasel/customer-web preview --port 4173",
       "startServerReadyPattern": "Local:",
       "url": [
         "http://localhost:4173/",
