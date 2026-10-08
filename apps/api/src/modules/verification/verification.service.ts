@@ -14,7 +14,7 @@ import {
   subscriptionPlans,
   users,
 } from '../../database/schema/index.js';
-import { eq, desc, and } from 'drizzle-orm';
+import { eq, desc, and, sql } from 'drizzle-orm';
 import { AuditService } from '../audit/index.js';
 import { S3StorageService } from '../../common/storage/s3-storage.service.js';
 import { EncryptionService } from '../../common/crypto/index.js';
@@ -453,6 +453,42 @@ export class VerificationService {
     );
   }
 
+  async adminListDrivers(statusFilter?: string) {
+    const filterClause = statusFilter ? sql`WHERE dp.status = ${statusFilter}` : sql``;
+    const rawDrivers = await this.dbService.db.execute(sql`
+      SELECT 
+        dp.id,
+        dp.status,
+        dp.is_online as "isOnline",
+        dp.last_seen_at as "lastSeenAt",
+        dp.created_at as "createdAt",
+        u.phone,
+        u.full_name as "fullName",
+        u.is_active as "isActive",
+        vl.name_ar as "levelName",
+        v.id as "vehicleId",
+        v.plate as "vehiclePlate",
+        vt.name_ar as "vehicleTypeName",
+        v.status as "vehicleStatus",
+        (SELECT COUNT(*)::int FROM app.verification_documents vd WHERE vd.driver_id = dp.id) as "docCount"
+      FROM app.driver_profiles dp
+      INNER JOIN app.users u ON dp.id = u.id
+      LEFT JOIN app.verification_levels vl ON dp.verification_level_id = vl.id
+      LEFT JOIN LATERAL (
+        SELECT v.id, v.plate, v.vehicle_type_id, v.status
+        FROM app.vehicles v
+        WHERE v.driver_id = dp.id
+        ORDER BY v.created_at DESC
+        LIMIT 1
+      ) v ON true
+      LEFT JOIN app.vehicle_types vt ON v.vehicle_type_id = vt.id
+      ${filterClause}
+      ORDER BY dp.created_at DESC;
+    `);
+
+    return (rawDrivers as any).rows || rawDrivers;
+  }
+
   async adminApproveOrRejectDriver(driverId: string, adminUserId: string, approve: boolean, reason?: string, levelId?: string) {
     return await this.dbService.transaction(
       async (tx) => {
@@ -467,19 +503,43 @@ export class VerificationService {
         }
 
         const newStatus = approve ? 'approved' : 'rejected';
+
+        let targetLevelId = levelId || profile.verificationLevelId;
+        if (approve && !targetLevelId) {
+          const [lvl1] = await tx
+            .select()
+            .from(verificationLevels)
+            .where(eq(verificationLevels.code, 'level_1_basic'))
+            .limit(1);
+          if (lvl1) {
+            targetLevelId = lvl1.id;
+          }
+        }
+
         const [updated] = await tx
           .update(driverProfiles)
           .set({
             status: newStatus,
-            verificationLevelId: levelId || profile.verificationLevelId,
+            verificationLevelId: targetLevelId,
             updatedAt: new Date(),
           })
           .where(eq(driverProfiles.id, driverId))
           .returning();
 
-        if (approve && profile.status !== 'approved') {
+        if (approve) {
           // Automatic 30-day trial grant on driver approval
           await this.subsFacade.grantTrialSubscriptionIfEligible(driverId, tx);
+
+          // Automatically approve any pending vehicles for this driver
+          await tx
+            .update(vehicles)
+            .set({ status: 'approved', updatedAt: new Date() })
+            .where(and(eq(vehicles.driverId, driverId), eq(vehicles.status, 'pending')));
+        } else if (newStatus === 'rejected') {
+          await tx
+            .update(vehicles)
+            .set({ status: 'rejected', updatedAt: new Date() })
+            .where(and(eq(vehicles.driverId, driverId), eq(vehicles.status, 'pending')));
         }
 
         await this.auditService.log({
@@ -488,7 +548,7 @@ export class VerificationService {
           entityType: 'driver_profiles',
           entityId: driverId,
           beforeState: { status: profile.status, levelId: profile.verificationLevelId },
-          afterState: { status: newStatus, reason, levelId },
+          afterState: { status: newStatus, reason, levelId: targetLevelId },
         });
 
         return updated;

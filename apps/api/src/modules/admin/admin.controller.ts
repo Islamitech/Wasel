@@ -5,6 +5,7 @@ import {
   Put,
   Body,
   Query,
+  Param,
   UseGuards,
   Inject,
 } from '@nestjs/common';
@@ -238,6 +239,18 @@ export class AdminController {
       offset ? parseInt(offset, 10) : 0,
       entityType,
     );
+  }
+
+  // --- User Account Management ---
+
+  @Put('users/:id/status')
+  @ApiOperation({ summary: 'Activate or suspend user account' })
+  async updateUserStatus(
+    @Param('id') userId: string,
+    @CurrentUser('userId') adminId: string,
+    @Body() body: { isActive: boolean; reason?: string },
+  ) {
+    return this.adminService.updateUserStatus(userId, adminId, body.isActive, body.reason);
   }
 }
 

@@ -144,4 +144,50 @@ export class VerificationController {
       rejectReason: body.rejectReason,
     });
   }
+
+  // --- Admin Driver Account Management & Fleet Approval ---
+
+  @Get('admin/drivers')
+  @Roles(UserRole.ADMIN, UserRole.SUPPORT)
+  @ApiOperation({ summary: 'List driver registrations and fleet verification status' })
+  @ApiQuery({ name: 'status', required: false })
+  async listDrivers(@Query('status') status?: string) {
+    return this.verificationService.adminListDrivers(status);
+  }
+
+  @Post('admin/drivers/:id/approve')
+  @Roles(UserRole.ADMIN)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Approve driver registration, activate vehicle and grant trial subscription' })
+  async approveDriver(
+    @Param('id') id: string,
+    @CurrentUser('userId') adminId: string,
+    @Body() body?: { levelId?: string },
+  ) {
+    return this.verificationService.adminApproveOrRejectDriver(id, adminId, true, undefined, body?.levelId);
+  }
+
+  @Post('admin/drivers/:id/reject')
+  @Roles(UserRole.ADMIN)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Reject driver registration with reason' })
+  async rejectDriver(
+    @Param('id') id: string,
+    @CurrentUser('userId') adminId: string,
+    @Body() body?: { reason?: string },
+  ) {
+    return this.verificationService.adminApproveOrRejectDriver(id, adminId, false, body?.reason);
+  }
+
+  @Post('admin/drivers/:id/review')
+  @Roles(UserRole.ADMIN)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Review driver profile (approve or reject)' })
+  async reviewDriver(
+    @Param('id') id: string,
+    @CurrentUser('userId') adminId: string,
+    @Body() body: { approve: boolean; reason?: string; levelId?: string },
+  ) {
+    return this.verificationService.adminApproveOrRejectDriver(id, adminId, body.approve, body.reason, body.levelId);
+  }
 }

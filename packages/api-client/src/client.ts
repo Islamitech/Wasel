@@ -580,6 +580,24 @@ export class WaselApiClient {
     listDrivers: (status?: string) =>
       this.request<any[]>(`/admin/drivers${status ? `?status=${status}` : ''}`),
 
+    approveDriver: (driverId: string, levelId?: string) =>
+      this.request<any>(`/admin/drivers/${driverId}/approve`, {
+        method: 'POST',
+        body: JSON.stringify({ levelId }),
+      }),
+
+    rejectDriver: (driverId: string, reason?: string) =>
+      this.request<any>(`/admin/drivers/${driverId}/reject`, {
+        method: 'POST',
+        body: JSON.stringify({ reason }),
+      }),
+
+    updateUserStatus: (userId: string, isActive: boolean, reason?: string) =>
+      this.request<any>(`/admin/users/${userId}/status`, {
+        method: 'PUT',
+        body: JSON.stringify({ isActive, reason }),
+      }),
+
     listSubscriptions: (status?: string) =>
       this.request<any[]>(`/admin/subscriptions${status ? `?status=${status}` : ''}`),
 

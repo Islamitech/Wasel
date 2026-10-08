@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '../../../api.js';
 import { Spinner } from '../../ui/Spinner.js';
 import { Button } from '../../ui/Button.js';
 import { Chip } from '../../ui/Chip.js';
+import { formatAuthError } from '@wasel/shared';
 
 interface AdminUserItem {
   id: string;
@@ -17,12 +18,26 @@ interface AdminUserItem {
 }
 
 export const UsersTab: React.FC = () => {
+  const queryClient = useQueryClient();
   const [searchTerm, setSearchTerm] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const usersQuery = useQuery({
     queryKey: ['admin', 'users', debouncedSearch],
     queryFn: () => apiClient.admin.searchUsers(debouncedSearch),
+  });
+
+  const toggleStatusMutation = useMutation({
+    mutationFn: ({ userId, isActive }: { userId: string; isActive: boolean }) =>
+      apiClient.admin.updateUserStatus(userId, isActive),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'users'] });
+      setActionError(null);
+    },
+    onError: (err) => {
+      setActionError(formatAuthError(err));
+    },
   });
 
   const handleSearch = (e: React.FormEvent) => {
@@ -63,6 +78,12 @@ export const UsersTab: React.FC = () => {
         </Button>
       </form>
 
+      {actionError && (
+        <div style={{ background: '#fef2f2', border: '1px solid #f87171', color: '#991b1b', padding: '12px', borderRadius: '8px' }}>
+          {actionError}
+        </div>
+      )}
+
       {/* Results Table */}
       <div
         style={{
@@ -90,6 +111,7 @@ export const UsersTab: React.FC = () => {
                 <th style={{ padding: '12px 16px' }}>الأدوار</th>
                 <th style={{ padding: '12px 16px' }}>الحالة</th>
                 <th style={{ padding: '12px 16px' }}>تاريخ التسجيل</th>
+                <th style={{ padding: '12px 16px' }}>إدارة الحساب</th>
               </tr>
             </thead>
             <tbody>
@@ -121,6 +143,27 @@ export const UsersTab: React.FC = () => {
                   </td>
                   <td style={{ padding: '12px 16px', color: 'var(--mut)', fontSize: '0.85rem' }}>
                     {user.createdAt ? new Date(user.createdAt).toLocaleDateString('ar-EG') : '—'}
+                  </td>
+                  <td style={{ padding: '12px 16px' }}>
+                    <Button
+                      variant={user.isActive !== false ? 'outline' : 'primary'}
+                      style={{
+                        padding: '4px 10px',
+                        fontSize: '0.8rem',
+                        borderColor: user.isActive !== false ? '#f87171' : undefined,
+                        color: user.isActive !== false ? '#dc2626' : undefined,
+                      }}
+                      isLoading={toggleStatusMutation.isPending}
+                      onClick={() => {
+                        const targetState = user.isActive === false;
+                        const actionName = targetState ? 'تنشيط' : 'حظر وتجميد';
+                        if (window.confirm(`هل أنت متأكد من ${actionName} حساب المستخدم؟`)) {
+                          toggleStatusMutation.mutate({ userId: user.id, isActive: targetState });
+                        }
+                      }}
+                    >
+                      {user.isActive !== false ? '🚫 حظر الحساب' : '✅ تنشيط الحساب'}
+                    </Button>
                   </td>
                 </tr>
               ))}

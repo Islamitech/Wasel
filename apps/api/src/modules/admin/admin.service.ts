@@ -1,4 +1,4 @@
-import { Injectable, Inject, BadRequestException } from '@nestjs/common';
+import { Injectable, Inject, BadRequestException, NotFoundException } from '@nestjs/common';
 import { DatabaseService } from '../../database/database.service.js';
 import {
   vehicleTypes,
@@ -315,6 +315,46 @@ export class AdminService {
       })),
       nextCursor,
       hasNext,
+    };
+  }
+
+  async updateUserStatus(userId: string, adminId: string, isActive: boolean, reason?: string) {
+    const [user] = await this.dbService.db
+      .select()
+      .from(users)
+      .where(eq(users.id, userId))
+      .limit(1);
+
+    if (!user) {
+      throw new NotFoundException('المستخدم غير موجود');
+    }
+
+    const [updated] = await this.dbService.db
+      .update(users)
+      .set({
+        isActive,
+        updatedAt: new Date(),
+      })
+      .where(eq(users.id, userId))
+      .returning();
+
+    await this.auditService.log({
+      userId: adminId,
+      action: isActive ? 'user_activated' : 'user_suspended',
+      entityType: 'users',
+      entityId: userId,
+      beforeState: { isActive: user.isActive },
+      afterState: { isActive, reason },
+    });
+
+    return {
+      success: true,
+      user: {
+        id: updated!.id,
+        phone: updated!.phone,
+        fullName: updated!.fullName,
+        isActive: updated!.isActive,
+      },
     };
   }
 }
