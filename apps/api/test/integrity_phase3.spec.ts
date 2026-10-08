@@ -219,6 +219,11 @@ describe('المرحلة 3: معاملات، Outbox، انتهاءات، و Idem
 
   describe('4. Outbox Worker: Concurrency, Exponential Backoff & Dead-Lettering', () => {
     it('concurrent batch polls do not duplicate events, failed handlers retry with exponential backoff and transition to dead', async () => {
+      // Purge any pending outbox events accumulated from earlier tests to ensure strict test isolation
+      await ctx.dbService.db
+        .delete(outbox)
+        .where(eq(outbox.status, 'pending'));
+
       // 1. Insert a mock outbox event directly
       const [testEvent] = await ctx.dbService.db
         .insert(outbox)
@@ -228,7 +233,7 @@ describe('المرحلة 3: معاملات، Outbox، انتهاءات، و Idem
           payload: { test: true },
           status: 'pending',
           attempts: 0,
-          nextAttemptAt: new Date(Date.now() - 5000),
+          nextAttemptAt: new Date(Date.now() - 60000),
         })
         .returning();
 
@@ -263,7 +268,7 @@ describe('المرحلة 3: معاملات، Outbox، انتهاءات، و Idem
       // 3. Fast-forward attempts to max_attempts (5) and process again -> becomes 'dead'
       await ctx.dbService.db
         .update(outbox)
-        .set({ attempts: 4, nextAttemptAt: new Date(Date.now() - 1000) })
+        .set({ attempts: 4, nextAttemptAt: new Date(Date.now() - 60000) })
         .where(eq(outbox.id, testEvent!.id));
 
       await outboxProcessor.processBatch(10);
