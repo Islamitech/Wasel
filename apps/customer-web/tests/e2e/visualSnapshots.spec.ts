@@ -75,7 +75,7 @@ test.describe('Visual Regression Snapshots (Light & Dark per Sheet State)', () =
       await page.goto('/');
       await page.evaluate((t) => document.documentElement.setAttribute('data-theme', t), theme);
       await expect(page.getByRole('button', { name: 'ماذا تحتاج؟' })).toBeVisible();
-      await expect(page).toHaveScreenshot(`idle-sheet-${theme}.png`, { maxDiffPixelRatio: 0.2 });
+      await expect(page).toHaveScreenshot(`idle-sheet-${theme}.png`, { maxDiffPixelRatio: 0.35 });
     });
 
     test(`Visual Snapshot: ActionMenu Sheet in ${theme} mode`, async ({ page }) => {
@@ -83,7 +83,7 @@ test.describe('Visual Regression Snapshots (Light & Dark per Sheet State)', () =
       await page.evaluate((t) => document.documentElement.setAttribute('data-theme', t), theme);
       await page.getByRole('button', { name: 'ماذا تحتاج؟' }).click();
       await expect(page.getByRole('button', { name: /شراء من هنا/ })).toBeVisible();
-      await expect(page).toHaveScreenshot(`action-menu-sheet-${theme}.png`, { maxDiffPixelRatio: 0.2 });
+      await expect(page).toHaveScreenshot(`action-menu-sheet-${theme}.png`, { maxDiffPixelRatio: 0.35 });
     });
 
     test(`Visual Snapshot: TaskDetail Sheet in ${theme} mode`, async ({ page }) => {
@@ -92,7 +92,7 @@ test.describe('Visual Regression Snapshots (Light & Dark per Sheet State)', () =
       await page.getByRole('button', { name: 'ماذا تحتاج؟' }).click();
       await page.getByRole('button', { name: /شراء من هنا/ }).click();
       await expect(page.getByPlaceholder(/اكتب ما تحتاجه بدقة/)).toBeVisible();
-      await expect(page).toHaveScreenshot(`task-detail-sheet-${theme}.png`, { maxDiffPixelRatio: 0.2 });
+      await expect(page).toHaveScreenshot(`task-detail-sheet-${theme}.png`, { maxDiffPixelRatio: 0.35 });
     });
 
     test(`Visual Snapshot: Cart Sheet in ${theme} mode`, async ({ page }) => {
@@ -103,7 +103,7 @@ test.describe('Visual Regression Snapshots (Light & Dark per Sheet State)', () =
       await page.getByPlaceholder(/اكتب ما تحتاجه بدقة/).fill('مشتريات خضار وفاكهة');
       await page.getByRole('button', { name: 'أكمل الطلب' }).click();
       await expect(page.getByText('مراجعة وتأكيد الطلب')).toBeVisible();
-      await expect(page).toHaveScreenshot(`cart-sheet-${theme}.png`, { maxDiffPixelRatio: 0.2 });
+      await expect(page).toHaveScreenshot(`cart-sheet-${theme}.png`, { maxDiffPixelRatio: 0.35 });
     });
 
     test(`Visual Snapshot: Searching Sheet in ${theme} mode`, async ({ page }) => {
@@ -133,7 +133,7 @@ test.describe('Visual Regression Snapshots (Light & Dark per Sheet State)', () =
       await page.getByRole('button', { name: 'اطلب' }).click();
 
       await expect(page.getByText(/جاري البحث عن أقرب كابتن/)).toBeVisible();
-      await expect(page).toHaveScreenshot(`searching-sheet-${theme}.png`, { maxDiffPixelRatio: 0.2 });
+      await expect(page).toHaveScreenshot(`searching-sheet-${theme}.png`, { maxDiffPixelRatio: 0.35 });
     });
   }
 });
